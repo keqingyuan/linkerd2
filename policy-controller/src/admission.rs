@@ -3,14 +3,14 @@ use anyhow::{anyhow, bail, Result};
 use api::policy::ServerSpec;
 use futures::future;
 use hyper::{body::Buf, http, Body, Request, Response};
-use kubert::kube::{self, core::DynamicObject, Api, ResourceExt};
+use kube::{core::DynamicObject, Api, ResourceExt};
 use std::task;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
 #[derive(Clone)]
 pub struct Service {
-    pub client: kubert::Client,
+    pub client: kube::Client,
 }
 
 #[derive(Debug, Error)]
