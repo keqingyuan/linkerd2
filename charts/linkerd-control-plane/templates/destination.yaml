@@ -254,7 +254,7 @@ spec:
         - --admin-addr=0.0.0.0:9990
         - --control-plane-namespace={{.Release.Namespace}}
         - --grpc-addr=0.0.0.0:8090
-        - --admission-addr=0.0.0.0:9443
+        - --webhook-addr=0.0.0.0:9443
         - --cluster-networks={{.Values.clusterNetworks}}
         - --identity-domain={{.Values.identityTrustDomain | default .Values.clusterDomain}}
         - --default-policy={{.Values.policyController.defaultAllowPolicy}}

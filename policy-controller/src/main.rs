@@ -35,6 +35,9 @@ struct Args {
     #[clap(flatten)]
     webhook: kubert::webhook::WebhookArgs,
 
+    #[clap(long)]
+    webhook_disabled: bool,
+
     #[clap(long, default_value = "0.0.0.0:8080")]
     admin_addr: SocketAddr,
 
@@ -67,6 +70,7 @@ async fn main() -> Result<()> {
         admin_addr,
         grpc_addr,
         webhook,
+        webhook_disabled,
         identity_domain,
         cluster_networks: IpNets(cluster_networks),
         default_policy,
@@ -107,9 +111,11 @@ async fn main() -> Result<()> {
     // Run the gRPC server, serving results by looking up against the index handle.
     tokio::spawn(grpc(grpc_addr, cluster_networks, handle, drain_rx.clone()));
 
-    let (listen_addr, serve) = webhook.serve(admission::Service { client }).await?;
-    tokio::spawn(serve.instrument(info_span!("webhook")));
-    info!(addr = %listen_addr, "Admission controller server listening");
+    if !webhook_disabled {
+        let (listen_addr, serve) = webhook.serve(admission::Service { client }).await?;
+        tokio::spawn(serve.instrument(info_span!("webhook")));
+        info!(addr = %listen_addr, "Admission controller server listening");
+    }
 
     // Block the main thread on the shutdown signal. Once it fires, wait for the background tasks to
     // complete before exiting.
@@ -165,7 +171,17 @@ async fn shutdown(drain: drain::Signal) {
         }
     }
     info!("Shutting down");
-    drain.drain().await;
+    tokio::select! {
+        _ = drain.drain() => {
+            debug!("Shutdown");
+        },
+        _ = tokio::signal::ctrl_c() => {
+            info!("Forcing shutdown");
+        },
+        _ = sigterm() => {
+            info!("Forcing shutdown");
+        }
+    }
 }
 
 async fn sigterm() {

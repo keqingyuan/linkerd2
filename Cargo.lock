@@ -784,8 +784,8 @@ dependencies = [
 
 [[package]]
 name = "kubert"
-version = "0.1.2"
-source = "git+https://github.com/olix0r/kubert.git#000b78b2c7eb8fe3b6f6a0a08ed653f99d228be2"
+version = "0.2.0"
+source = "git+https://github.com/olix0r/kubert.git#56e5cfe1f1addc841a23e5b3148aecddc8230bff"
 dependencies = [
  "clap",
  "hyper",
