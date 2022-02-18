@@ -255,6 +255,8 @@ spec:
         - --control-plane-namespace={{.Release.Namespace}}
         - --grpc-addr=0.0.0.0:8090
         - --webhook-addr=0.0.0.0:9443
+        - --webhook-tls-key=/var/run/linkerd/tls/tls.key
+        - --webhook-tls-certs=/var/run/linkerd/tls/tls.crt
         - --cluster-networks={{.Values.clusterNetworks}}
         - --identity-domain={{.Values.identityTrustDomain | default .Values.clusterDomain}}
         - --default-policy={{.Values.policyController.defaultAllowPolicy}}
