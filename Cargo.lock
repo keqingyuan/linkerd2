@@ -713,7 +713,7 @@ dependencies = [
  "pem",
  "pin-project",
  "rustls",
- "rustls-pemfile",
+ "rustls-pemfile 0.2.1",
  "secrecy",
  "serde",
  "serde_json",
@@ -783,6 +783,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "kubert"
+version = "0.1.2"
+source = "git+https://github.com/olix0r/kubert.git#000b78b2c7eb8fe3b6f6a0a08ed653f99d228be2"
+dependencies = [
+ "clap",
+ "hyper",
+ "k8s-openapi",
+ "kube",
+ "rustls-pemfile 0.3.0",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "tower-service",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -810,18 +828,15 @@ dependencies = [
  "futures",
  "hyper",
  "jemallocator",
- "kube",
+ "kubert",
  "linkerd-policy-controller-core",
  "linkerd-policy-controller-grpc",
  "linkerd-policy-controller-k8s-api",
  "linkerd-policy-controller-k8s-index",
- "rustls",
- "rustls-pemfile",
  "serde_json",
+ "thiserror",
  "tokio",
- "tokio-rustls",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1405,7 +1420,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca9ebdfa27d3fc180e42879037b5338ab1c040c06affd00d8338598e7800943"
 dependencies = [
  "openssl-probe",
- "rustls-pemfile",
+ "rustls-pemfile 0.2.1",
  "schannel",
  "security-framework",
 ]
@@ -1415,6 +1430,15 @@ name = "rustls-pemfile"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5eebeaeb360c87bfb72e84abdb3447159c0eaececf1bef2aecd65a8be949d1c9"
+dependencies = [
+ "base64",
+]
+
+[[package]]
+name = "rustls-pemfile"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ee86d63972a7c661d1536fefe8c3c8407321c3df668891286de28abcd087360"
 dependencies = [
  "base64",
 ]
