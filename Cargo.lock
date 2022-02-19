@@ -799,7 +799,8 @@ dependencies = [
 [[package]]
 name = "kubert"
 version = "0.2.0"
-source = "git+https://github.com/olix0r/kubert.git#6d56bf7a890ef46c473612666189b9a748746f0b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "211ba4c6bc5ca9188b0a6789195b4bc06739b096de2230238abefcbc3cc91976"
 dependencies = [
  "clap",
  "drain",
