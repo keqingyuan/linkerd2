@@ -36,8 +36,9 @@ struct Args {
     #[clap(flatten)]
     server: kubert::server::ServerArgs,
 
+    /// Disables the admission controller server.
     #[clap(long)]
-    server_disabled: bool,
+    admission_controller_disabled: bool,
 
     #[clap(long, default_value = "0.0.0.0:8080")]
     admin_addr: SocketAddr,
@@ -71,7 +72,7 @@ async fn main() -> Result<()> {
         admin_addr,
         grpc_addr,
         server,
-        server_disabled,
+        admission_controller_disabled,
         identity_domain,
         cluster_networks: IpNets(cluster_networks),
         default_policy,
@@ -112,13 +113,16 @@ async fn main() -> Result<()> {
     // Run the gRPC server, serving results by looking up against the index handle.
     tokio::spawn(grpc(grpc_addr, cluster_networks, handle, drain_rx.clone()));
 
-    if !server_disabled {
+    if admission_controller_disabled {
+        tracing::info!("Admission controller disabled");
+    } else {
         let srv = server
             .spawn(admission::Service { client }, drain_rx.clone())
             .await?;
         info!(addr = %srv.local_addr(), "Admission controller server listening");
     }
 
+    // Spawn a task that emits a log message when shutdown starts.
     tokio::spawn(async move {
         let release = drain_rx.signaled().await;
         info!("Shutdown signaled");
