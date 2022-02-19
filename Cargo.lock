@@ -799,9 +799,10 @@ dependencies = [
 [[package]]
 name = "kubert"
 version = "0.2.0"
-source = "git+https://github.com/olix0r/kubert.git#544ff701fe66a5abbabca27103b8b45842b1e2c0"
+source = "git+https://github.com/olix0r/kubert.git#0aa9533a37726f82f510e368e3790670e14b87d3"
 dependencies = [
  "clap",
+ "drain",
  "hyper",
  "kube",
  "rustls-pemfile 0.3.0",

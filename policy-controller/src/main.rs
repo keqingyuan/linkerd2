@@ -3,13 +3,14 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use futures::{future, prelude::*};
+use futures::prelude::*;
+use kubert::shutdown;
 use linkerd_policy_controller::k8s::DefaultPolicy;
 use linkerd_policy_controller::{admin, admission};
 use linkerd_policy_controller_core::IpNet;
 use std::net::SocketAddr;
 use tokio::{sync::watch, time};
-use tracing::{debug, info, info_span, instrument, Instrument};
+use tracing::{info, info_span, instrument, Instrument};
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 #[global_allocator]
@@ -81,7 +82,7 @@ async fn main() -> Result<()> {
 
     log_format.try_init(log_level)?;
 
-    let (drain_tx, drain_rx) = drain::channel();
+    let (shutdown, drain_rx) = shutdown::channel();
 
     // Load a Kubernetes client from the environment (check for in-cluster configuration first).
     let client = client
@@ -117,9 +118,21 @@ async fn main() -> Result<()> {
         info!(addr = %listen_addr, "Admission controller server listening");
     }
 
+    tokio::spawn(async move {
+        let release = drain_rx.signaled().await;
+        info!("Shutdown signaled");
+        drop(release);
+    });
+
     // Block the main thread on the shutdown signal. Once it fires, wait for the background tasks to
     // complete before exiting.
-    shutdown(drain_tx).await;
+    if let shutdown::Completion::Aborted = shutdown
+        .on_signal()
+        .await
+        .expect("Shutdown signal must register")
+    {
+        info!("Aborted");
+    }
 
     Ok(())
 }
@@ -159,35 +172,4 @@ async fn grpc(
         }
     }
     Ok(())
-}
-
-async fn shutdown(drain: drain::Signal) {
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            debug!("Received ctrl-c");
-        },
-        _ = sigterm() => {
-            debug!("Received SIGTERM");
-        }
-    }
-    info!("Shutting down");
-    tokio::select! {
-        _ = drain.drain() => {
-            debug!("Shutdown");
-        },
-        _ = tokio::signal::ctrl_c() => {
-            info!("Forcing shutdown");
-        },
-        _ = sigterm() => {
-            info!("Forcing shutdown");
-        }
-    }
-}
-
-async fn sigterm() {
-    use tokio::signal::unix::{signal, SignalKind};
-    match signal(SignalKind::terminate()) {
-        Ok(mut term) => term.recv().await,
-        _ => future::pending().await,
-    };
 }

@@ -42,6 +42,7 @@ features = [
     "clap",
     "client",
     "log",
+    "shutdown",
     "webhook",
 ]
 
