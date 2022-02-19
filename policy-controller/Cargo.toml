@@ -30,7 +30,6 @@ version = "0.69.1"
 default-features = false
 features = [
     "admission",
-    "client",
     "derive",
 ]
 
@@ -42,8 +41,8 @@ features = [
     "clap",
     "client",
     "log",
+    "server",
     "shutdown",
-    "webhook",
 ]
 
 [dependencies.tokio]

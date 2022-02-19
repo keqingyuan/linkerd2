@@ -1,7 +1,7 @@
 #![deny(warnings, rust_2018_idioms)]
 #![forbid(unsafe_code)]
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use futures::prelude::*;
 use kubert::shutdown;
@@ -10,7 +10,7 @@ use linkerd_policy_controller::{admin, admission};
 use linkerd_policy_controller_core::IpNet;
 use std::net::SocketAddr;
 use tokio::{sync::watch, time};
-use tracing::{info, info_span, instrument, Instrument};
+use tracing::{info, instrument};
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 #[global_allocator]
@@ -34,10 +34,10 @@ struct Args {
     client: kubert::ClientArgs,
 
     #[clap(flatten)]
-    webhook: kubert::webhook::WebhookArgs,
+    server: kubert::server::ServerArgs,
 
     #[clap(long)]
-    webhook_disabled: bool,
+    server_disabled: bool,
 
     #[clap(long, default_value = "0.0.0.0:8080")]
     admin_addr: SocketAddr,
@@ -70,8 +70,8 @@ async fn main() -> Result<()> {
         client,
         admin_addr,
         grpc_addr,
-        webhook,
-        webhook_disabled,
+        server,
+        server_disabled,
         identity_domain,
         cluster_networks: IpNets(cluster_networks),
         default_policy,
@@ -112,10 +112,11 @@ async fn main() -> Result<()> {
     // Run the gRPC server, serving results by looking up against the index handle.
     tokio::spawn(grpc(grpc_addr, cluster_networks, handle, drain_rx.clone()));
 
-    if !webhook_disabled {
-        let (listen_addr, serve) = webhook.serve(admission::Service { client }).await?;
-        tokio::spawn(serve.instrument(info_span!("webhook")));
-        info!(addr = %listen_addr, "Admission controller server listening");
+    if !server_disabled {
+        let srv = server
+            .spawn(admission::Service { client }, drain_rx.clone())
+            .await?;
+        info!(addr = %srv.local_addr(), "Admission controller server listening");
     }
 
     tokio::spawn(async move {
@@ -126,12 +127,13 @@ async fn main() -> Result<()> {
 
     // Block the main thread on the shutdown signal. Once it fires, wait for the background tasks to
     // complete before exiting.
-    if let shutdown::Completion::Aborted = shutdown
+    if shutdown
         .on_signal()
         .await
         .expect("Shutdown signal must register")
+        .is_aborted()
     {
-        info!("Aborted");
+        bail!("Aborted");
     }
 
     Ok(())
