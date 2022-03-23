@@ -31,6 +31,7 @@ func Main(args []string) {
 	trustDomain := cmd.String("identity-trust-domain", "", "configures the name suffix used for identities")
 	clusterDomain := cmd.String("cluster-domain", "", "kubernetes cluster domain")
 	defaultOpaquePorts := cmd.String("default-opaque-ports", "", "configures the default opaque ports")
+	enablePprof := cmd.Bool("enable-pprof", false, "Enable pprof endpoints on the admin server")
 
 	traceCollector := flags.AddTraceFlags(cmd)
 
@@ -123,14 +124,18 @@ func Main(args []string) {
 
 	go func() {
 		log.Infof("starting gRPC server on %s", *addr)
-		server.Serve(lis)
+		if err := server.Serve(lis); err != nil {
+			log.Errorf("failed to start destination gRPC server: %s", err)
+		}
 	}()
 
-	adminServer := admin.NewServer(*metricsAddr)
+	adminServer := admin.NewServer(*metricsAddr, *enablePprof)
 
 	go func() {
 		log.Infof("starting admin server on %s", *metricsAddr)
-		adminServer.ListenAndServe()
+		if err := adminServer.ListenAndServe(); err != nil {
+			log.Errorf("failed to start destination admin server: %s", err)
+		}
 	}()
 
 	<-stop

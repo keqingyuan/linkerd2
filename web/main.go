@@ -41,6 +41,7 @@ func main() {
 	enforcedHost := cmd.String("enforced-host", "", "regexp describing the allowed values for the Host header; protects from DNS-rebinding attacks")
 	kubeConfigPath := cmd.String("kubeconfig", "", "path to kube config")
 	clusterDomain := cmd.String("cluster-domain", "", "kubernetes cluster domain")
+	enablePprof := cmd.Bool("enable-pprof", false, "Enable pprof endpoints on the admin server")
 
 	traceCollector := flags.AddTraceFlags(cmd)
 
@@ -101,14 +102,18 @@ func main() {
 
 	go func() {
 		log.Infof("starting HTTP server on %+v", *addr)
-		server.ListenAndServe()
+		if err := server.ListenAndServe(); err != nil {
+			log.Errorf("failed to start web HTTP server: %s", err)
+		}
 	}()
 
-	adminServer := admin.NewServer(*metricsAddr)
+	adminServer := admin.NewServer(*metricsAddr, *enablePprof)
 
 	go func() {
 		log.Infof("starting admin server on %s", *metricsAddr)
-		adminServer.ListenAndServe()
+		if err := adminServer.ListenAndServe(); err != nil {
+			log.Errorf("failed to start web admin server: %s", err)
+		}
 	}()
 
 	<-stop

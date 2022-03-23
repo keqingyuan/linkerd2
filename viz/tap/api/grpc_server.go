@@ -26,6 +26,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +51,8 @@ var (
 )
 
 // Tap is deprecated, use TapByResource.
+// This API endpoint is marked as deprecated but it's still used.
+//nolint:staticcheck
 func (s *GRPCTapServer) Tap(req *tapPb.TapRequest, stream tapPb.Tap_TapServer) error {
 	return status.Error(codes.Unimplemented, "Tap is deprecated, use TapByResource")
 }
@@ -300,7 +303,7 @@ func buildExtractHTTP(extract *tapPb.TapByResourceRequest_Extract_Http) *proxy.O
 func (s *GRPCTapServer) tapProxy(ctx context.Context, maxRps float32, match *proxy.ObserveRequest_Match, extract *proxy.ObserveRequest_Extract, addr string, events chan *tapPb.TapEvent) {
 	tapAddr := fmt.Sprintf("%s:%d", addr, s.tapPort)
 	log.Infof("Establishing tap on %s", tapAddr)
-	conn, err := grpc.DialContext(ctx, tapAddr, grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, tapAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Error(err)
 		return
@@ -533,11 +536,15 @@ func NewGrpcTapServer(
 	controllerNamespace string,
 	trustDomain string,
 	k8sAPI *k8s.API,
-) *GRPCTapServer {
-	k8sAPI.Pod().Informer().AddIndexers(cache.Indexers{ipIndex: indexByIP})
-	k8sAPI.Node().Informer().AddIndexers(cache.Indexers{ipIndex: indexByIP})
+) (*GRPCTapServer, error) {
+	if err := k8sAPI.Pod().Informer().AddIndexers(cache.Indexers{ipIndex: indexByIP}); err != nil {
+		return nil, err
+	}
+	if err := k8sAPI.Node().Informer().AddIndexers(cache.Indexers{ipIndex: indexByIP}); err != nil {
+		return nil, err
+	}
 
-	return newGRPCTapServer(tapPort, controllerNamespace, trustDomain, k8sAPI)
+	return newGRPCTapServer(tapPort, controllerNamespace, trustDomain, k8sAPI), nil
 }
 
 func newGRPCTapServer(

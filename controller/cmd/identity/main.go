@@ -42,6 +42,7 @@ func Main(args []string) {
 	trustDomain := cmd.String("identity-trust-domain", "", "configures the name suffix used for identities")
 	identityIssuanceLifeTime := cmd.String("identity-issuance-lifetime", "", "the amount of time for which the Identity issuer should certify identity")
 	identityClockSkewAllowance := cmd.String("identity-clock-skew-allowance", "", "the amount of time to allow for clock skew within a Linkerd cluster")
+	enablePprof := cmd.Bool("enable-pprof", false, "Enable pprof endpoints on the admin server")
 
 	issuerPath := cmd.String("issuer",
 		"/var/run/linkerd/identity/issuer",
@@ -172,11 +173,13 @@ func Main(args []string) {
 	//
 	// Bind and serve
 	//
-	adminServer := admin.NewServer(*adminAddr)
+	adminServer := admin.NewServer(*adminAddr, *enablePprof)
 
 	go func() {
 		log.Infof("starting admin server on %s", *adminAddr)
-		adminServer.ListenAndServe()
+		if err := adminServer.ListenAndServe(); err != nil {
+			log.Errorf("failed to start identity admin server: %s", err)
+		}
 	}()
 
 	lis, err := net.Listen("tcp", *addr)
@@ -194,7 +197,9 @@ func Main(args []string) {
 	identity.Register(srv, svc)
 	go func() {
 		log.Infof("starting gRPC server on %s", *addr)
-		srv.Serve(lis)
+		if err := srv.Serve(lis); err != nil {
+			log.Errorf("failed to start identity gRPC server: %s", err)
+		}
 	}()
 	<-stop
 	log.Infof("shutting down gRPC server on %s", *addr)

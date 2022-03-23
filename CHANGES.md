@@ -1,5 +1,63 @@
 # Changes
 
+## edge-22.3.3
+
+This edge release ensures that in multicluster installations, mirror service
+endpoints have their readiness tied to gateway liveness. When the gateway for a
+target cluster is not alive, the endpoints that point to it on a source cluster
+will properly indicate that they are not ready.
+
+* Fixed tap controller logging errors that were succeptible to log forgery by
+  ensuring special characters are escaped
+* Fixed issue where mirror service endpoints were always ready regardless of
+  gateway liveness
+* Removed unused `namespace` entry in `linkerd-control-plane` chart
+
+## edge-22.3.2
+
+This edge release includes a few fixes and quality of life improvements. An
+issue has been fixed in the proxy allowing HTTP Upgrade requests to work
+through multi-cluster gateways, and the init container's resource limits and
+requests have been revised. Additionally, more Go linters have been enabled and
+improvements have been made to the devcontainer.
+
+* Changed `linkerd-init` resource (CPU/memory) limits and requests to ensure by
+  default the init container does not break a pod's `Guaranteed` QOS class
+* Added a new check condition to skip pods whose status is `NodeShutdown`
+  during validation as they will not have a proxy container
+* Fixed an issue that would prevent proxies from sending HTTP Upgrade requests
+  (used in websockets) through multi-cluster gateways
+
+## edge-22.3.1
+
+This edge release includes updates to dependencies, CI, and rust 1.59.0. It also
+includes changes to the `linkerd-jaeger` chart to ensure that namespace labels
+are preserved and adds support for `imagePullSecrets`, along with improvements
+to the multicluster and policy functionality.
+
+* Added note to `multicluster link` command to clarify that the link is
+  one-direction
+* Introduced `imagePullSecrets` to Jaeger Helm chart
+* Updated Rust to v1.59.0
+* Fixed a bug where labels can be overwritten in the `linkerd-jaeger` chart
+* Fix broken mirrored headles services after `repairEndpoints` runs
+* Updated `Server` CRD to handle an empty `PodSelector`
+
+## edge-22.2.4
+
+This edge release continues to address several security related lints and
+ensures they are checked by CI.
+
+* Add `linkerd check` warning for clusters that cannot verify their
+  `clusterNetworks` due to Nodes missing the `podCIDR` field
+* Changed `Server` CRD to allow having an empty `PodSelector`
+* Modified `linkerd inject` to only support `https` URLs to mitigate security
+  risks
+* Fixed potential goroutine leak in the port forwarding used by several CLI
+  commands and control plane components
+* Fixed timeouts in the policiy validator which could lead to failures if
+  `failurePolicy` was set to `Fail`
+
 ## edge-22.2.3
 
 This edge release fixes some `Instant`-related proxy panics that occur on Amazon
@@ -3142,7 +3200,7 @@ resolutions](https://github.com/linkerd/linkerd2/pull/3848) are released when
 the associated balancer becomes idle.
 
 Finally, an update to follow best practices in the Helm charts has caused a
-*breaking change*. Users who have installed Linkerd using Helm must be certain
+_breaking change_. Users who have installed Linkerd using Helm must be certain
 to read the details of
 [#3822](https://github.com/linkerd/linkerd2/issues/3822)
 
@@ -5207,7 +5265,7 @@ you are upgrading from the `stable-2.0.0` release.
 **Full release notes**:
 
 * CLI
-  * `linkerd routes` command displays per-route stats for *any resource*
+  * `linkerd routes` command displays per-route stats for _any resource_
   * Service profiles are now supported for external authorities
   * `linkerd routes --open-api` flag generates a service profile based on an
     OpenAPI specification (swagger) file

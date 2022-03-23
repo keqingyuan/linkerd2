@@ -153,13 +153,15 @@ const (
 
 	proxyInjectorOldTLSSecretName = "linkerd-proxy-injector-tls"
 	proxyInjectorTLSSecretName    = "linkerd-proxy-injector-k8s-tls"
-	spValidatorOldTLSSecretName   = "linkerd-sp-validator-tls"
-	spValidatorTLSSecretName      = "linkerd-sp-validator-k8s-tls"
-	policyValidatorTLSSecretName  = "linkerd-policy-validator-k8s-tls"
-	certOldKeyName                = "crt.pem"
-	certKeyName                   = "tls.crt"
-	keyOldKeyName                 = "key.pem"
-	keyKeyName                    = "tls.key"
+
+	spValidatorOldTLSSecretName = "linkerd-sp-validator-tls"
+	spValidatorTLSSecretName    = "linkerd-sp-validator-k8s-tls"
+
+	policyValidatorTLSSecretName = "linkerd-policy-validator-k8s-tls"
+	certOldKeyName               = "crt.pem"
+	certKeyName                  = "tls.crt"
+	keyOldKeyName                = "key.pem"
+	keyKeyName                   = "tls.key"
 )
 
 // AllowedClockSkew sets the allowed skew in clock synchronization
@@ -1636,8 +1638,8 @@ func (hc *HealthChecker) LinkerdConfig() *l5dcharts.Values {
 func (hc *HealthChecker) runCheck(category *Category, c *Checker, observer CheckObserver) bool {
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
-		defer cancel()
 		err := c.check(ctx)
+		cancel()
 		var se SkipError
 		if errors.As(err, &se) {
 			log.Debugf("Skipping check: %s. Reason: %s", c.description, se.Reason)
@@ -2794,9 +2796,10 @@ func CheckPodsRunning(pods []corev1.Pod, namespace string) error {
 	for _, pod := range pods {
 		status := k8s.GetPodStatus(pod)
 
-		// Skip validating meshed pods that are in the `Completed` or
-		// `Shutdown` state as they do not have a running proxy
-		if status == "Completed" || status == "Shutdown" {
+		// Skip validating pods that have a status which indicates there would
+		// be no running proxy container.
+		switch status {
+		case "Completed", "NodeShutdown", "Shutdown":
 			continue
 		}
 		if status != string(corev1.PodRunning) && status != "Evicted" {

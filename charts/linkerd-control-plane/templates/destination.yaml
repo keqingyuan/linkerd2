@@ -193,6 +193,7 @@ spec:
         - -cluster-domain={{.Values.clusterDomain}}
         - -identity-trust-domain={{.Values.identityTrustDomain | default .Values.clusterDomain}}
         - -default-opaque-ports={{.Values.proxy.opaquePorts}}
+        - -enable-pprof={{.Values.enablePprof | default false}}
         {{- include "partials.linkerd.trace" . | nindent 8 -}}
         image: {{.Values.controllerImage}}:{{.Values.linkerdVersion}}
         imagePullPolicy: {{.Values.imagePullPolicy}}
@@ -222,6 +223,7 @@ spec:
         - sp-validator
         - -log-level={{.Values.controllerLogLevel}}
         - -log-format={{.Values.controllerLogFormat}}
+        - -enable-pprof={{.Values.enablePprof | default false}}
         image: {{.Values.controllerImage}}:{{.Values.linkerdVersion}}
         imagePullPolicy: {{.Values.imagePullPolicy}}
         livenessProbe:
@@ -254,7 +256,9 @@ spec:
         - --admin-addr=0.0.0.0:9990
         - --control-plane-namespace={{.Release.Namespace}}
         - --grpc-addr=0.0.0.0:8090
-        - --admission-addr=0.0.0.0:9443
+        - --server-addr=0.0.0.0:9443
+        - --server-tls-key=/var/run/linkerd/tls/tls.key
+        - --server-tls-certs=/var/run/linkerd/tls/tls.crt
         - --cluster-networks={{.Values.clusterNetworks}}
         - --identity-domain={{.Values.identityTrustDomain | default .Values.clusterDomain}}
         - --default-policy={{.Values.policyController.defaultAllowPolicy}}
@@ -264,9 +268,8 @@ spec:
         imagePullPolicy: {{.Values.policyController.image.pullPolicy | default .Values.imagePullPolicy}}
         livenessProbe:
           httpGet:
-            path: /ready
+            path: /live
             port: admin
-          initialDelaySeconds: 10
         name: policy
         ports:
         - containerPort: 8090
@@ -284,6 +287,7 @@ spec:
           httpGet:
             path: /ready
             port: admin
+          initialDelaySeconds: 10
         {{- $res := .Values.policyController.resources | default .Values.destinationResources }}
         {{- if $res }}
         {{- include "partials.resources" $res | nindent 8 }}
