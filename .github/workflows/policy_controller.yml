@@ -32,7 +32,7 @@ jobs:
     container:
       image: docker://rust:1.59.0
     steps:
-      - uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - run: rustup component add rustfmt
       - run: cargo fmt --all -- --check
 
@@ -47,7 +47,7 @@ jobs:
     # Prevent sudden announcement of a new advisory from failing Ci.
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
-    - uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+    - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
     - uses: EmbarkStudios/cargo-deny-action@8acbae97b5d01b0481ae14cee8fcd8f5aa9e374d
       with:
         command: check ${{ matrix.checks }}
@@ -59,7 +59,7 @@ jobs:
       image: docker://rust:1.59.0
     steps:
       - run: rustup component add clippy
-      - uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - run: |
           bin/scurl -o /usr/local/bin/cargo-action-fmt "https://github.com/olix0r/cargo-action-fmt/releases/download/release%2F${CARGO_ACTION_FMT_VERSION}/cargo-action-fmt-x86_64-unknown-linux-gnu"
           chmod 755 /usr/local/bin/cargo-action-fmt
@@ -72,7 +72,7 @@ jobs:
     container:
       image: docker://rust:1.59.0
     steps:
-      - uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - run: |
           bin/scurl -o /usr/local/bin/cargo-action-fmt "https://github.com/olix0r/cargo-action-fmt/releases/download/release%2F${CARGO_ACTION_FMT_VERSION}/cargo-action-fmt-x86_64-unknown-linux-gnu"
           chmod 755 /usr/local/bin/cargo-action-fmt
@@ -93,7 +93,7 @@ jobs:
     container:
       image: docker://rust:1.59.0
     steps:
-      - uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - run: cargo fetch --locked
       - run: cargo test --workspace --exclude=linkerd-policy-test --frozen --no-run
       - run: cargo test --workspace --exclude=linkerd-policy-test --frozen
@@ -103,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - run: |
           ex=0
 
@@ -138,7 +138,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - uses: ./.github/actions/docker-build
         with:
           docker-registry: ghcr.io/linkerd
@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout code
-        uses: actions/checkout@a12a3943b4bdde767164f792f33f40b04645d846
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
 
       - name: Install rust
         run: |
