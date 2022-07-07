@@ -6,7 +6,7 @@ FROM --platform=$BUILDPLATFORM golang:1.17.3-alpine as go-deps
 WORKDIR /linkerd-build
 COPY go.mod go.sum ./
 COPY bin/install-deps bin/
-RUN go mod download
+RUN export GOPROXY=https://goproxy.cn && go mod download
 ARG TARGETARCH
 RUN ./bin/install-deps $TARGETARCH
 
