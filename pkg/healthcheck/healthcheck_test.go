@@ -6,17 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-test/deep"
 	"github.com/linkerd/linkerd2/pkg/charts/linkerd2"
 	"github.com/linkerd/linkerd2/pkg/identity"
 	"github.com/linkerd/linkerd2/pkg/issuercerts"
 	"github.com/linkerd/linkerd2/pkg/k8s"
 	"github.com/linkerd/linkerd2/pkg/tls"
-	"github.com/linkerd/linkerd2/testutil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -197,8 +196,8 @@ func TestHealthChecker(t *testing.T) {
 		obs := newObserver()
 		hc.RunChecks(obs.resultFn)
 
-		if !reflect.DeepEqual(obs.results, expectedResults) {
-			t.Fatalf("Expected results %v, but got %v", expectedResults, obs.results)
+		if diff := deep.Equal(obs.results, expectedResults); diff != nil {
+			t.Fatalf("%+v", diff)
 		}
 	})
 
@@ -247,8 +246,8 @@ func TestHealthChecker(t *testing.T) {
 		obs := newObserver()
 		hc.RunChecks(obs.resultWithHintFn)
 
-		if !reflect.DeepEqual(obs.results, expectedResults) {
-			t.Fatalf("Expected results %v, but got %v", expectedResults, obs.results)
+		if diff := deep.Equal(obs.results, expectedResults); diff != nil {
+			t.Fatalf("%+v", diff)
 		}
 	})
 
@@ -269,8 +268,8 @@ func TestHealthChecker(t *testing.T) {
 		obs := newObserver()
 		hc.RunChecks(obs.resultFn)
 
-		if !reflect.DeepEqual(obs.results, expectedResults) {
-			t.Fatalf("Expected results %v, but got %v", expectedResults, obs.results)
+		if diff := deep.Equal(obs.results, expectedResults); diff != nil {
+			t.Fatalf("%+v", diff)
 		}
 	})
 
@@ -320,8 +319,8 @@ func TestHealthChecker(t *testing.T) {
 
 		hc.RunChecks(observer)
 
-		if !reflect.DeepEqual(observedResults, expectedResults) {
-			t.Fatalf("Expected results %v, but got %v", expectedResults, observedResults)
+		if diff := deep.Equal(observedResults, expectedResults); diff != nil {
+			t.Fatalf("%+v", diff)
 		}
 	})
 
@@ -341,8 +340,8 @@ func TestHealthChecker(t *testing.T) {
 		obs := newObserver()
 		hc.RunChecks(obs.resultFn)
 
-		if !reflect.DeepEqual(obs.results, expectedResults) {
-			t.Fatalf("Expected results %v, but got %v", expectedResults, obs.results)
+		if diff := deep.Equal(obs.results, expectedResults); diff != nil {
+			t.Fatalf("%+v", diff)
 		}
 	})
 }
@@ -475,6 +474,118 @@ status:
 }
 
 func TestConfigExists(t *testing.T) {
+
+	namespace := []string{`
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-ns
+`}
+	clusterRoles := []string{`
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: linkerd-test-ns-identity
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`,
+		`
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: linkerd-test-ns-proxy-injector
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`}
+	clusterRoleBindings := []string{`
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: linkerd-test-ns-identity
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`,
+		`
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: linkerd-test-ns-proxy-injector
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`}
+	serviceAccounts := []string{`
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: linkerd-destination
+  namespace: test-ns
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`,
+		`
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: linkerd-identity
+  namespace: test-ns
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`,
+		`
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: linkerd-proxy-injector
+  namespace: test-ns
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`,
+		`
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: linkerd-heartbeat
+  namespace: test-ns
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`}
+	crds := []string{}
+	for _, crd := range []struct{ name, version string }{
+		{name: "authorizationpolicies.policy.linkerd.io", version: "v1alpha1"},
+		{name: "meshtlsauthentications.policy.linkerd.io", version: "v1alpha1"},
+		{name: "networkauthentications.policy.linkerd.io", version: "v1alpha1"},
+		{name: "serverauthorizations.policy.linkerd.io", version: "v1beta1"},
+		{name: "servers.policy.linkerd.io", version: "v1beta1"},
+		{name: "serviceprofiles.linkerd.io", version: "v1alpha2"},
+	} {
+		crds = append(crds, fmt.Sprintf(`
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: %s
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+spec:
+  versions:
+  - name: %s`, crd.name, crd.version))
+	}
+	mutatingWebhooks := []string{`
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: linkerd-proxy-injector-webhook-config
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`}
+	validatingWebhooks := []string{`
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: linkerd-sp-validator-webhook-config
+  labels:
+    linkerd.io/control-plane-ns: test-ns
+`}
+
 	testCases := []struct {
 		k8sConfigs []string
 		results    []string
@@ -484,42 +595,17 @@ func TestConfigExists(t *testing.T) {
 			[]string{"linkerd-config control plane Namespace exists: The \"test-ns\" namespace does not exist"},
 		},
 		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-			},
+			namespace,
 			[]string{
 				"linkerd-config control plane Namespace exists",
 				"linkerd-config control plane ClusterRoles exist: missing ClusterRoles: linkerd-test-ns-identity, linkerd-test-ns-proxy-injector",
 			},
 		},
 		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-			},
+			multiappend(
+				namespace,
+				clusterRoles,
+			),
 			[]string{
 				"linkerd-config control plane Namespace exists",
 				"linkerd-config control plane ClusterRoles exist",
@@ -527,182 +613,28 @@ metadata:
 			},
 		},
 		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-destination
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-identity
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-proxy-injector
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-heartbeat
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-			},
+			multiappend(
+				namespace,
+				clusterRoles,
+				clusterRoleBindings,
+				serviceAccounts,
+			),
 			[]string{
 				"linkerd-config control plane Namespace exists",
 				"linkerd-config control plane ClusterRoles exist",
 				"linkerd-config control plane ClusterRoleBindings exist",
 				"linkerd-config control plane ServiceAccounts exist",
-				"linkerd-config control plane CustomResourceDefinitions exist: missing CustomResourceDefinitions: serviceprofiles.linkerd.io",
+				"linkerd-config control plane CustomResourceDefinitions exist: missing authorizationpolicies.policy.linkerd.io, missing meshtlsauthentications.policy.linkerd.io, missing networkauthentications.policy.linkerd.io, missing serverauthorizations.policy.linkerd.io, missing servers.policy.linkerd.io, missing serviceprofiles.linkerd.io",
 			},
 		},
 		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-destination
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-identity
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-proxy-injector
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-heartbeat
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-web
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: serviceprofiles.linkerd.io
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-			},
+			multiappend(
+				namespace,
+				clusterRoles,
+				clusterRoleBindings,
+				serviceAccounts,
+				crds,
+			),
 			[]string{
 				"linkerd-config control plane Namespace exists",
 				"linkerd-config control plane ClusterRoles exist",
@@ -713,106 +645,14 @@ metadata:
 			},
 		},
 		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-destination
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-identity
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-proxy-injector
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-heartbeat
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-web
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: serviceprofiles.linkerd.io
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  name: linkerd-proxy-injector-webhook-config
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-			},
+			multiappend(
+				namespace,
+				clusterRoles,
+				clusterRoleBindings,
+				serviceAccounts,
+				crds,
+				mutatingWebhooks,
+			),
 			[]string{
 				"linkerd-config control plane Namespace exists",
 				"linkerd-config control plane ClusterRoles exist",
@@ -824,233 +664,15 @@ metadata:
 			},
 		},
 		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-destination
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-identity
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-proxy-injector
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-heartbeat
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-web
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: serviceprofiles.linkerd.io
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  name: linkerd-proxy-injector-webhook-config
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingWebhookConfiguration
-metadata:
-  name: linkerd-sp-validator-webhook-config
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-			},
-			[]string{
-				"linkerd-config control plane Namespace exists",
-				"linkerd-config control plane ClusterRoles exist",
-				"linkerd-config control plane ClusterRoleBindings exist",
-				"linkerd-config control plane ServiceAccounts exist",
-				"linkerd-config control plane CustomResourceDefinitions exist",
-				"linkerd-config control plane MutatingWebhookConfigurations exist",
-				"linkerd-config control plane ValidatingWebhookConfigurations exist",
-			},
-		},
-		{
-			[]string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-identity
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: linkerd-test-ns-proxy-injector
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-destination
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-identity
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-proxy-injector
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-heartbeat
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-kind: ServiceAccount
-apiVersion: v1
-metadata:
-  name: linkerd-web
-  namespace: test-ns
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: serviceprofiles.linkerd.io
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  name: linkerd-proxy-injector-webhook-config
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-				`
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingWebhookConfiguration
-metadata:
-  name: linkerd-sp-validator-webhook-config
-  labels:
-    linkerd.io/control-plane-ns: test-ns
-`,
-			},
+			multiappend(
+				namespace,
+				clusterRoles,
+				clusterRoleBindings,
+				serviceAccounts,
+				crds,
+				mutatingWebhooks,
+				validatingWebhooks,
+			),
 			[]string{
 				"linkerd-config control plane Namespace exists",
 				"linkerd-config control plane ClusterRoles exist",
@@ -1070,6 +692,7 @@ metadata:
 				[]CategoryID{LinkerdConfigChecks},
 				&Options{
 					ControlPlaneNamespace: "test-ns",
+					CRDManifest:           strings.Join(crds, "\n---\n"),
 				},
 			)
 
@@ -1081,8 +704,8 @@ metadata:
 
 			obs := newObserver()
 			hc.RunChecks(obs.resultFn)
-			if !reflect.DeepEqual(obs.results, tc.results) {
-				t.Fatalf("Expected results\n%s,\nbut got:\n%s", strings.Join(tc.results, "\n"), strings.Join(obs.results, "\n"))
+			if diff := deep.Equal(obs.results, tc.results); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -1134,8 +757,8 @@ data:
 
 			obs := newObserver()
 			hc.RunChecks(obs.resultFn)
-			if !reflect.DeepEqual(obs.results, testCase.expected) {
-				t.Fatalf("Expected results %v, but got %v", testCase.expected, obs.results)
+			if diff := deep.Equal(obs.results, testCase.expected); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -1243,8 +866,8 @@ data:
 			hc.addCheckAsCategory("linkerd-existence", LinkerdControlPlaneExistenceChecks,
 				tc.checkDescription)
 			hc.RunChecks(obs.resultFn)
-			if !reflect.DeepEqual(obs.results, tc.expected) {
-				t.Fatalf("Expected results\n%s,\nbut got:\n%s", strings.Join(tc.expected, "\n"), strings.Join(obs.results, "\n"))
+			if diff := deep.Equal(obs.results, tc.expected); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -1343,8 +966,8 @@ data:
 			}
 
 			err = hc.checkDataPlaneProxiesCertificate(context.Background())
-			if !reflect.DeepEqual(err, testCase.expectedErr) {
-				t.Fatalf("Error %q does not match expected error: %q", err, testCase.expectedErr)
+			if diff := deep.Equal(err, testCase.expectedErr); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -1490,8 +1113,8 @@ func TestValidateDataPlaneNamespace(t *testing.T) {
 			}
 			obs := newObserver()
 			hc.RunChecks(obs.resultFn)
-			if !reflect.DeepEqual(obs.results, expectedResults) {
-				t.Fatalf("Expected results %v, but got %v", expectedResults, obs.results)
+			if diff := deep.Equal(obs.results, expectedResults); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -1616,6 +1239,23 @@ func TestCheckDataPlanePods(t *testing.T) {
 				Status: corev1.PodStatus{
 					Phase:  "Failed",
 					Reason: "NodeShutdown",
+				},
+			},
+		}
+
+		err := CheckPodsRunning(pods, "emojivoto")
+		if err != nil {
+			t.Fatalf("Expected no error, got %s", err)
+		}
+	})
+
+	t.Run("Does not return an error if the pod is in Terminated state", func(t *testing.T) {
+		pods := []corev1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "emoji-d9c7866bb-7v74n"},
+				Status: corev1.PodStatus{
+					Phase:  "Failed",
+					Reason: "Terminated",
 				},
 			},
 		}
@@ -2001,96 +1641,6 @@ func TestServicesAnnotations(t *testing.T) {
 	})
 }
 
-func TestLinkerdPreInstallGlobalResourcesChecks(t *testing.T) {
-	hc := NewHealthChecker(
-		[]CategoryID{LinkerdPreInstallGlobalResourcesChecks},
-		&Options{})
-
-	t.Run("global resources don't exist", func(t *testing.T) {
-		var err error
-		hc.kubeAPI, err = k8s.NewFakeAPI()
-		if err != nil {
-			t.Fatalf("Unexpected error: %s", err)
-		}
-
-		observer := newObserver()
-		success, _ := hc.RunChecks(observer.resultFn)
-		if !success {
-			t.Errorf("Expect RunChecks to return true")
-		}
-
-		expected := []string{
-			"pre-linkerd-global-resources no ClusterRoles exist",
-			"pre-linkerd-global-resources no ClusterRoleBindings exist",
-			"pre-linkerd-global-resources no CustomResourceDefinitions exist",
-			"pre-linkerd-global-resources no MutatingWebhookConfigurations exist",
-			"pre-linkerd-global-resources no ValidatingWebhookConfigurations exist",
-		}
-		if !reflect.DeepEqual(observer.results, expected) {
-			testutil.AnnotatedErrorf(t, "Mismatch result", "Mismatch result.\nExpected: %v\n Actual: %v\n", expected, observer.results)
-		}
-	})
-
-	t.Run("global resources exist", func(t *testing.T) {
-		resources := []string{
-			`apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: cluster-role
-  labels:
-    linkerd.io/control-plane-ns: test-ns`,
-			`apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: cluster-role-binding
-  labels:
-    linkerd.io/control-plane-ns: test-ns`,
-			`apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: custom-resource-definition
-  labels:
-    linkerd.io/control-plane-ns: test-ns`,
-			`apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  name: mutating-webhook-configuration
-  labels:
-    linkerd.io/control-plane-ns: test-ns`,
-			`apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingWebhookConfiguration
-metadata:
-  name: validating-webhook-configuration
-  labels:
-    linkerd.io/control-plane-ns: test-ns`,
-		}
-
-		var err error
-		hc.kubeAPI, err = k8s.NewFakeAPI(resources...)
-		hc.ControlPlaneNamespace = "test-ns"
-		if err != nil {
-			testutil.AnnotatedFatalf(t, "Unexpected error", "Unexpected error: %s", err)
-		}
-
-		observer := newObserver()
-		success, _ := hc.RunChecks(observer.resultFn)
-		if success {
-			testutil.Error(t, "Expect RunChecks to return false")
-		}
-
-		expected := []string{
-			"pre-linkerd-global-resources no ClusterRoles exist: ClusterRoles found but should not exist: cluster-role",
-			"pre-linkerd-global-resources no ClusterRoleBindings exist: ClusterRoleBindings found but should not exist: cluster-role-binding",
-			"pre-linkerd-global-resources no CustomResourceDefinitions exist: CustomResourceDefinitions found but should not exist: custom-resource-definition",
-			"pre-linkerd-global-resources no MutatingWebhookConfigurations exist: MutatingWebhookConfigurations found but should not exist: mutating-webhook-configuration",
-			"pre-linkerd-global-resources no ValidatingWebhookConfigurations exist: ValidatingWebhookConfigurations found but should not exist: validating-webhook-configuration",
-		}
-		if !reflect.DeepEqual(observer.results, expected) {
-			t.Errorf("Mismatch result.\nExpected: %v\n Actual: %v\n", expected, observer.results)
-		}
-	})
-}
-
 func getWebhookAndKubeSystemNamespace(nsLabel string, failurePolicy string) []string {
 	return []string{fmt.Sprintf(`
 apiVersion: v1
@@ -2181,9 +1731,8 @@ func TestKubeSystemNamespaceInHA(t *testing.T) {
 				expectedResults := []string{
 					tc.expectedOutput,
 				}
-
-				if !reflect.DeepEqual(obs.results, expectedResults) {
-					t.Fatalf("Expected results %v, but got %v", expectedResults, obs.results)
+				if diff := deep.Equal(obs.results, expectedResults); diff != nil {
+					t.Fatalf("%+v", diff)
 				}
 			}
 		})
@@ -2214,7 +1763,7 @@ data:
   global: |
     {"linkerdNamespace":"linkerd","cniEnabled":false,"version":"install-control-plane-version","identityContext":{"trustDomain":"cluster.local","trustAnchorsPem":"fake-trust-anchors-pem","issuanceLifetime":"86400s","clockSkewAllowance":"20s"}}
   proxy: |
-    {"proxyImage":{"imageName":"cr.l5d.io/linkerd/proxy","pullPolicy":"IfNotPresent"},"proxyInitImage":{"imageName":"cr.l5d.io/linkerd/proxy-init","pullPolicy":"IfNotPresent"},"controlPort":{"port":4190},"ignoreInboundPorts":[],"ignoreOutboundPorts":[],"inboundPort":{"port":4143},"adminPort":{"port":4191},"outboundPort":{"port":4140},"resource":{"requestCpu":"","requestMemory":"","limitCpu":"","limitMemory":""},"proxyUid":"2102","logLevel":{"level":"warn,linkerd=info"},"disableExternalProfiles":true,"proxyVersion":"install-proxy-version","proxy_init_image_version":"v1.5.3","debugImage":{"imageName":"cr.l5d.io/linkerd/debug","pullPolicy":"IfNotPresent"},"debugImageVersion":"install-debug-version"}
+    {"proxyImage":{"imageName":"cr.l5d.io/linkerd/proxy","pullPolicy":"IfNotPresent"},"proxyInitImage":{"imageName":"cr.l5d.io/linkerd/proxy-init","pullPolicy":"IfNotPresent"},"controlPort":{"port":4190},"ignoreInboundPorts":[],"ignoreOutboundPorts":[],"inboundPort":{"port":4143},"adminPort":{"port":4191},"outboundPort":{"port":4140},"resource":{"requestCpu":"","requestMemory":"","limitCpu":"","limitMemory":""},"proxyUid":"2102","logLevel":{"level":"warn,linkerd=info"},"disableExternalProfiles":true,"proxyVersion":"install-proxy-version","proxy_init_image_version":"v1.6.2","debugImage":{"imageName":"cr.l5d.io/linkerd/debug","pullPolicy":"IfNotPresent"},"debugImageVersion":"install-debug-version"}
   install: |
     {"cliVersion":"dev-undefined","flags":[]}
   values: |
@@ -2227,6 +1776,7 @@ data:
     disableHeartBeat: false
     enableH2Upgrade: true
     enablePodAntiAffinity: false
+    nodeAffinity: null
     cliVersion: CliVersion
     clusterDomain: cluster.local
     clusterNetworks: ClusterNetworks
@@ -2366,7 +1916,7 @@ data:
   global: |
     {"linkerdNamespace":"linkerd","cniEnabled":false,"version":"install-control-plane-version","identityContext":{"trustDomain":"cluster.local","trustAnchorsPem":"fake-trust-anchors-pem","issuanceLifetime":"86400s","clockSkewAllowance":"20s"}}
   proxy: |
-    {"proxyImage":{"imageName":"cr.l5d.io/linkerd/proxy","pullPolicy":"IfNotPresent"},"proxyInitImage":{"imageName":"cr.l5d.io/linkerd/proxy-init","pullPolicy":"IfNotPresent"},"controlPort":{"port":4190},"ignoreInboundPorts":[],"ignoreOutboundPorts":[],"inboundPort":{"port":4143},"adminPort":{"port":4191},"outboundPort":{"port":4140},"resource":{"requestCpu":"","requestMemory":"","limitCpu":"","limitMemory":""},"proxyUid":"2102","logLevel":{"level":"warn,linkerd=info"},"disableExternalProfiles":true,"proxyVersion":"install-proxy-version","proxy_init_image_version":"v1.5.3","debugImage":{"imageName":"cr.l5d.io/linkerd/debug","pullPolicy":"IfNotPresent"},"debugImageVersion":"install-debug-version"}
+    {"proxyImage":{"imageName":"cr.l5d.io/linkerd/proxy","pullPolicy":"IfNotPresent"},"proxyInitImage":{"imageName":"cr.l5d.io/linkerd/proxy-init","pullPolicy":"IfNotPresent"},"controlPort":{"port":4190},"ignoreInboundPorts":[],"ignoreOutboundPorts":[],"inboundPort":{"port":4143},"adminPort":{"port":4191},"outboundPort":{"port":4140},"resource":{"requestCpu":"","requestMemory":"","limitCpu":"","limitMemory":""},"proxyUid":"2102","logLevel":{"level":"warn,linkerd=info"},"disableExternalProfiles":true,"proxyVersion":"install-proxy-version","proxy_init_image_version":"v1.6.2","debugImage":{"imageName":"cr.l5d.io/linkerd/debug","pullPolicy":"IfNotPresent"},"debugImageVersion":"install-debug-version"}
   install: |
     {"cliVersion":"dev-undefined","flags":[]}
   values: |
@@ -2519,12 +2069,11 @@ data:
 			}
 
 			_, values, err := FetchCurrentConfiguration(context.Background(), clientset, "linkerd")
-			if !reflect.DeepEqual(err, tc.err) {
-				t.Fatalf("Expected \"%+v\", got \"%+v\"", tc.err, err)
+			if diff := deep.Equal(err, tc.err); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
-
-			if !reflect.DeepEqual(values, tc.expected) {
-				t.Fatalf("Unexpected values:\nExpected:\n%+v\nGot:\n%+v", tc.expected, values)
+			if diff := deep.Equal(values, tc.expected); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -2624,8 +2173,8 @@ func runIdentityCheckTestCase(ctx context.Context, t *testing.T, testID int, tes
 
 		obs := newObserver()
 		hc.RunChecks(obs.resultFn)
-		if !reflect.DeepEqual(obs.results, expectedOutput) {
-			t.Fatalf("Expected results %v, but got %v", expectedOutput, obs.results)
+		if diff := deep.Equal(obs.results, expectedOutput); diff != nil {
+			t.Fatalf("%+v", diff)
 		}
 	})
 }
@@ -3012,8 +2561,8 @@ func TestCniChecks(t *testing.T) {
 
 			obs := newObserver()
 			hc.RunChecks(obs.resultFn)
-			if !reflect.DeepEqual(obs.results, tc.results) {
-				t.Fatalf("Expected results\n%s,\nbut got:\n%s", strings.Join(tc.results, "\n"), strings.Join(obs.results, "\n"))
+			if diff := deep.Equal(obs.results, tc.results); diff != nil {
+				t.Fatalf("%+v", diff)
 			}
 		})
 	}
@@ -3554,4 +3103,12 @@ func generateAllControlPlaneDef(replicaOptions *controlPlaneReplicaOptions, t *t
 		}
 	}
 	return resourceDefs
+}
+
+func multiappend(slices ...[]string) []string {
+	res := []string{}
+	for _, slice := range slices {
+		res = append(res, slice...)
+	}
+	return res
 }

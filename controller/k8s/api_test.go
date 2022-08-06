@@ -9,6 +9,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
+	"github.com/go-test/deep"
 	"github.com/linkerd/linkerd2/pkg/k8s"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -17,11 +18,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// newAPI constructs a mock controller/k8s.API object for testing
+// newMockAPI constructs a mock controller/k8s.API object for testing
 // retry: forces informer indexing, enabling informer lookups
 // resourceConfigs: resources available via the API, and returned as runtime.Objects
 // extraConfigs:    resources returned as runtime.Objects
-func newAPI(retry bool, resourceConfigs []string, extraConfigs ...string) (*API, []runtime.Object, error) {
+func newMockAPI(retry bool, resourceConfigs []string, extraConfigs ...string) (*API, []runtime.Object, error) {
 	k8sConfigs := []string{}
 	k8sResults := []runtime.Object{}
 
@@ -199,14 +200,14 @@ metadata:
 				resType:   k8s.CronJob,
 				name:      "my-cronjob",
 				k8sResResults: []string{`
-apiVersion: batch/v1beta1
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: my-cronjob
   namespace: my-ns`,
 				},
 				k8sResMisc: []string{`
-apiVersion: batch/v1beta1
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: my-cronjob
@@ -262,9 +263,9 @@ metadata:
 		}
 
 		for _, exp := range expectations {
-			api, k8sResults, err := newAPI(true, exp.k8sResResults, exp.k8sResMisc...)
+			api, k8sResults, err := newMockAPI(true, exp.k8sResResults, exp.k8sResMisc...)
 			if err != nil {
-				t.Fatalf("newAPI error: %s", err)
+				t.Fatalf("newMockAPI error: %s", err)
 			}
 
 			pods, err := api.GetObjects(exp.namespace, exp.resType, exp.name, labels.Everything())
@@ -275,8 +276,8 @@ metadata:
 					t.Fatalf("api.GetObjects() unexpected error, expected [%s] got: [%s]", exp.err, err)
 				}
 			} else {
-				if !reflect.DeepEqual(pods, k8sResults) {
-					t.Fatalf("Expected: %+v, Got: %+v", k8sResults, pods)
+				if diff := deep.Equal(pods, k8sResults); diff != nil {
+					t.Fatalf("Expected: %+v", diff)
 				}
 			}
 		}
@@ -324,9 +325,9 @@ status:
 			}
 
 			for _, exp := range expectations {
-				api, k8sResults, err := newAPI(true, exp.k8sResResults)
+				api, k8sResults, err := newMockAPI(true, exp.k8sResResults)
 				if err != nil {
-					t.Fatalf("newAPI error: %s", err)
+					t.Fatalf("newMockAPI error: %s", err)
 				}
 
 				pods, err := api.GetObjects(exp.namespace, exp.resType, exp.name, labels.Everything())
@@ -334,8 +335,8 @@ status:
 					t.Fatalf("api.GetObjects() unexpected error %s", err)
 				}
 
-				if !reflect.DeepEqual(pods, k8sResults) {
-					t.Fatalf("Expected: %+v, Got: %+v", k8sResults, pods)
+				if diff := deep.Equal(pods, k8sResults); diff != nil {
+					t.Fatalf("%+v", diff)
 				}
 			}
 		})
@@ -381,9 +382,9 @@ status:
 			}
 
 			for _, exp := range expectations {
-				api, _, err := newAPI(true, exp.k8sResResults)
+				api, _, err := newMockAPI(true, exp.k8sResResults)
 				if err != nil {
-					t.Fatalf("newAPI error: %s", err)
+					t.Fatalf("newMockAPI error: %s", err)
 				}
 
 				pods, err := api.GetObjects(exp.namespace, exp.resType, exp.name, labels.Everything())
@@ -498,7 +499,7 @@ status:
 			{
 				err: nil,
 				k8sResInput: `
-apiVersion: batch/v1beta1
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: emoji
@@ -526,7 +527,7 @@ metadata:
   namespace: emojivoto
   uid: job
   ownerReferences:
-  - apiVersion: batch/v1beta1
+  - apiVersion: batch/v1
     uid: cronjob
 spec:
   selector:
@@ -926,9 +927,9 @@ status:
 				t.Fatalf("could not decode yml: %s", err)
 			}
 
-			api, k8sResults, err := newAPI(true, exp.k8sResResults, exp.k8sResMisc...)
+			api, k8sResults, err := newMockAPI(true, exp.k8sResResults, exp.k8sResMisc...)
 			if err != nil {
-				t.Fatalf("newAPI error: %s", err)
+				t.Fatalf("newMockAPI error: %s", err)
 			}
 
 			k8sResultPods := []*corev1.Pod{}
@@ -1065,7 +1066,7 @@ metadata:
   name: my-job
   namespace: my-ns
   ownerReferences:
-  - apiVersion: batch/v1beta1
+  - apiVersion: batch/v1
     kind: CronJob
     name: my-cronjob`,
 			},
@@ -1103,9 +1104,9 @@ metadata:
 		} {
 			retry := retry // pin
 			t.Run(fmt.Sprintf("%d/retry:%t", i, retry), func(t *testing.T) {
-				api, objs, err := newAPI(retry, []string{tt.podConfig}, tt.extraConfigs...)
+				api, objs, err := newMockAPI(retry, []string{tt.podConfig}, tt.extraConfigs...)
 				if err != nil {
-					t.Fatalf("newAPI error: %s", err)
+					t.Fatalf("newMockAPI error: %s", err)
 				}
 
 				pod := objs[0].(*corev1.Pod)
@@ -1209,9 +1210,9 @@ spec:
 			},
 		},
 	} {
-		api, _, err := newAPI(true, tt.profileConfigs)
+		api, _, err := newMockAPI(true, tt.profileConfigs)
 		if err != nil {
-			t.Fatalf("newAPI error: %s", err)
+			t.Fatalf("newMockAPI error: %s", err)
 		}
 
 		svc := corev1.Service{
@@ -1282,9 +1283,9 @@ spec:
 				t.Fatalf("could not decode yml: %s", err)
 			}
 
-			api, k8sResults, err := newAPI(true, exp.k8sResResults, append(exp.k8sResMisc, exp.k8sResInput)...)
+			api, k8sResults, err := newMockAPI(true, exp.k8sResResults, append(exp.k8sResMisc, exp.k8sResInput)...)
 			if err != nil {
-				t.Fatalf("newAPI error: %s", err)
+				t.Fatalf("newMockAPI error: %s", err)
 			}
 
 			k8sResultServices := []*corev1.Service{}

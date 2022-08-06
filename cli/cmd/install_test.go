@@ -12,6 +12,7 @@ import (
 	charts "github.com/linkerd/linkerd2/pkg/charts/linkerd2"
 	"github.com/linkerd/linkerd2/pkg/tls"
 	"helm.sh/helm/v3/pkg/cli/values"
+	valuespkg "helm.sh/helm/v3/pkg/cli/values"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -32,6 +33,7 @@ func TestRender(t *testing.T) {
 	// by `render()`.
 	metaValues := &charts.Values{
 		ControllerImage:         "ControllerImage",
+		LinkerdVersion:          "LinkerdVersion",
 		ControllerUID:           2103,
 		EnableH2Upgrade:         true,
 		WebhookFailurePolicy:    "WebhookFailurePolicy",
@@ -70,6 +72,7 @@ func TestRender(t *testing.T) {
 					Request: "memory-request",
 				},
 			},
+			ProbeNetworks: []string{"1.0.0.0/0", "2.0.0.0/0"},
 		},
 		Proxy: &charts.Proxy{
 			Image: &charts.Image{
@@ -97,8 +100,10 @@ func TestRender(t *testing.T) {
 			},
 			UID:         2102,
 			OpaquePorts: "25,443,587,3306,5432,11211",
+			Await:       true,
 		},
 		ProxyInit: &charts.ProxyInit{
+			IptablesMode: "legacy",
 			Image: &charts.Image{
 				Name:       "ProxyInitImageName",
 				PullPolicy: "ImagePullPolicy",
@@ -153,6 +158,7 @@ func TestRender(t *testing.T) {
 	haWithOverridesValues.ControllerReplicas = 2
 	haWithOverridesValues.Proxy.Resources.CPU.Request = "400m"
 	haWithOverridesValues.Proxy.Resources.Memory.Request = "300Mi"
+	haWithOverridesValues.EnablePodDisruptionBudget = true
 	addFakeTLSSecrets(haWithOverridesValues)
 
 	cniEnabledValues, err := testInstallOptions()
@@ -236,11 +242,42 @@ func TestRender(t *testing.T) {
 				t.Fatalf("Failed to get values overrides: %v", err)
 			}
 			var buf bytes.Buffer
-			if err := render(&buf, tc.values, "", valuesOverrides); err != nil {
+			if err := renderControlPlane(&buf, tc.values, valuesOverrides); err != nil {
 				t.Fatalf("Failed to render templates: %v", err)
 			}
-			testDataDiffer.DiffTestdata(t, tc.goldenFileName, buf.String())
+			if err := testDataDiffer.DiffTestYAML(tc.goldenFileName, buf.String()); err != nil {
+				t.Error(err)
+			}
 		})
+	}
+}
+
+func TestIgnoreCluster(t *testing.T) {
+	defaultValues, err := testInstallOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	addFakeTLSSecrets(defaultValues)
+
+	var buf bytes.Buffer
+	if err := installControlPlane(context.Background(), nil, &buf, defaultValues, nil, values.Options{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRenderCRDs(t *testing.T) {
+	defaultValues, err := testInstallOptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	addFakeTLSSecrets(defaultValues)
+
+	var buf bytes.Buffer
+	if err := renderCRDs(&buf, valuespkg.Options{}); err != nil {
+		t.Fatalf("Failed to render templates: %v", err)
+	}
+	if err := testDataDiffer.DiffTestYAML("install_crds.golden", buf.String()); err != nil {
+		t.Error(err)
 	}
 }
 

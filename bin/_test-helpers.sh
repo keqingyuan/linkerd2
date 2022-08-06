@@ -63,14 +63,14 @@ Available Commands:
 }
 
 handle_tests_input() {
-  export images="docker"
+  export images=docker
   export test_name=''
   export skip_cluster_create=''
   export skip_cluster_delete=''
   export cleanup_docker=''
   export linkerd_path=""
 
-  while  [ "$#" -ne 0 ]; do
+  while  [ $# -ne 0 ]; do
     case $1 in
       -h|--help)
         tests_usage "$0"
@@ -83,7 +83,7 @@ handle_tests_input() {
           tests_usage "$0" >&2
           exit 64
         fi
-        if [[ $images != "docker" && $images != "archive" && $images != "preload" ]]; then
+        if [[ $images != 'docker' && $images != 'archive' && $images != 'preload' ]]; then
           echo 'Error: the argument for --images was invalid' >&2
           tests_usage "$0" >&2
           exit 64
@@ -119,37 +119,37 @@ handle_tests_input() {
           tests_usage "$0" >&2
           exit 64
         fi
-        if [ -n "$linkerd_path" ]; then
-          echo "Multiple linkerd paths specified:" >&2
+        if [ "$linkerd_path" ]; then
+          echo 'Multiple linkerd paths specified:' >&2
           echo "  $linkerd_path" >&2
           echo "  $1" >&2
           tests_usage "$0" >&2
           exit 64
         fi
-        linkerd_path="$1"
+        linkerd_path=$(realpath "$1")
         shift
         ;;
     esac
   done
 
   if [ -z "$linkerd_path" ]; then
-    echo "Error: path to linkerd binary is required" >&2
+    echo 'Error: path to linkerd binary is required' >&2
     tests_usage "$0" >&2
     exit 64
   fi
 
-  if [ -z "$test_name" ] && [ -n "$skip_cluster_delete" ]; then
-    echo "Error: must provide --name when using --skip-cluster-delete" >&2
+  if [ -z "$test_name" ] && [ "$skip_cluster_delete" ]; then
+    echo 'Error: must provide --name when using --skip-cluster-delete' >&2
     tests_usage "$0" >&2
     exit 64
   fi
 }
 
 handle_cleanup_input() {
-  export k8s_context=""
-  export linkerd_path=""
+  export k8s_context=''
+  export linkerd_path=''
 
-  while  [ "$#" -ne 0 ]; do
+  while  [ $# -ne 0 ]; do
     case $1 in
       -h|--help)
         cleanup_usage "$0"
@@ -166,21 +166,21 @@ handle_cleanup_input() {
           cleanup_usage "$0" >&2
           exit 64
         fi
-        if [ -n "$linkerd_path" ]; then
-          echo "Multiple linkerd paths specified:" >&2
+        if [ "$linkerd_path" ]; then
+          echo 'Multiple linkerd paths specified:' >&2
           echo "  $linkerd_path" >&2
           echo "  $1" >&2
           cleanup_usage "$0" >&2
           exit 64
         fi
-        linkerd_path="$1"
+        linkerd_path=$1
         shift
         ;;
     esac
   done
 
   if [ -z "$linkerd_path" ]; then
-    echo "Error: path to linkerd binary is required" >&2
+    echo 'Error: path to linkerd binary is required' >&2
     cleanup_usage "$0" >&2
     exit 64
   fi
@@ -197,10 +197,6 @@ test_setup() {
 
 check_linkerd_binary() {
   printf 'Checking the linkerd binary...'
-  if [[ "$linkerd_path" != /* ]]; then
-    printf '\n[%s] is not an absolute path\n' "$linkerd_path"
-    exit 1
-  fi
   if [ ! -x "$linkerd_path" ]; then
     printf '\n[%s] does not exist or is not executable\n' "$linkerd_path"
     exit 1
@@ -208,7 +204,7 @@ check_linkerd_binary() {
   exit_code=0
   "$linkerd_path" version --client > /dev/null 2>&1
   exit_on_err 'error running linkerd version command'
-  printf '[ok]\n'
+  echo '[ok]'
 }
 
 ##### Cluster helpers #####
@@ -226,7 +222,7 @@ delete_cluster() {
 }
 
 cleanup_cluster() {
-  "$bindir"/test-cleanup --context "$context" "$linkerd_path" > /dev/null 2>&1
+  "$bindir"/test-cleanup "$linkerd_path" > /dev/null 2>&1
   exit_on_err 'error removing existing Linkerd resources'
 }
 
@@ -236,7 +232,7 @@ setup_min_cluster() {
 
   test_setup
   if [ -z "$skip_cluster_create" ]; then
-    "$bindir"/k3d cluster create "$@"  --image +v1.20
+    "$bindir"/k3d cluster create "$@" --image +v1.21
     image_load "$name"
   fi
   check_cluster
@@ -270,14 +266,14 @@ check_if_k8s_reachable() {
   exit_code=0
   kubectl --context="$context" --request-timeout=5s get ns > /dev/null 2>&1
   exit_on_err 'error connecting to Kubernetes cluster'
-  printf '[ok]\n'
+  echo '[ok]'
 }
 
 check_if_l5d_exists() {
   printf 'Checking if Linkerd resources exist on cluster...'
   local resources
   resources=$(kubectl --context="$context" get all,clusterrole,clusterrolebinding,mutatingwebhookconfigurations,validatingwebhookconfigurations,crd -l linkerd.io/control-plane-ns --all-namespaces -oname)
-  if [ -n "$resources" ]; then
+  if [ "$resources" ]; then
     printf '
 Linkerd resources exist on cluster:
 \n%s\n
@@ -285,7 +281,7 @@ Help:
     Run: [%s/test-cleanup] ' "$resources" "$linkerd_path"
     exit 1
   fi
-  printf '[ok]\n'
+  echo '[ok]'
 }
 
 ##### Test runner helpers #####
@@ -334,7 +330,7 @@ start_test() {
       ;;
   esac
 
-  if [ "$name" == "multicluster" ]; then
+  if [ "$name" = 'multicluster' ]; then
     start_multicluster_test "${config[@]}"
   else
     start_single_test "${config[@]}"
@@ -343,12 +339,12 @@ start_test() {
 
 start_single_test() {
   name=$1
-  if [ "$name" == "helm-deep" ]; then
+  if [ "$name" = 'helm-deep' ]; then
     setup_min_cluster "$@"
   else
     setup_cluster "$@"
   fi
-  if [ -n "$cleanup_docker" ]; then
+  if [ "$cleanup_docker" ]; then
     rm -rf image-archives
     docker system prune --force --all
   fi
@@ -360,19 +356,16 @@ start_single_test() {
 start_multicluster_test() {
   setup_cluster source "$@"
   setup_cluster target "$@"
-  if [ -n "$cleanup_docker" ]; then
+  if [ "$cleanup_docker" ]; then
     rm -rf image-archives
     docker system prune --force --all
   fi
   run_multicluster_test
   exit_on_err "error calling 'run_multicluster_test'"
+  export context='k3d-source'
   finish source
+  export context='k3d-target'
   finish target
-}
-
-multicluster_link() {
-  lbIP=$(kubectl --context="$context" get svc -n kube-system traefik -o 'go-template={{ (index .status.loadBalancer.ingress 0).ip }}')
-  "$linkerd_path" multicluster link --log-level debug --api-server-address "https://${lbIP}:6443" --cluster-name "$1" --set "enableHeadlessServices=true"
 }
 
 run_test(){
@@ -411,7 +404,7 @@ setup_helm() {
   helm_charts="$( cd "$bindir"/.. && pwd )"/charts
   export helm_charts
   export helm_release_name='helm-test'
-  export helm_multicluster_release_name="multicluster-test"
+  export helm_multicluster_release_name='multicluster-test'
   "$bindir"/helm-build
   "$helm_path" --kube-context="$context" repo add linkerd https://helm.linkerd.io/stable
   exit_on_err 'error setting up Helm'
@@ -436,7 +429,7 @@ helm_cleanup() {
 
 run_helm-upgrade_test() {
   local stable_version
-  stable_version=$(latest_release_channel "stable")
+  stable_version=$(latest_release_channel 'stable')
 
   if [ -z "$stable_version" ]; then
     echo 'error getting stable_version'
@@ -455,26 +448,7 @@ run_uninstall_test() {
 }
 
 run_multicluster_test() {
-  tmp=$(mktemp -d -t l5dcerts.XXX)
-  pwd=$PWD
-  cd "$tmp"
-  "$bindir"/certs-openssl
-  cd "$pwd"
-  export context="k3d-target"
-  run_test "$test_directory/multicluster/install_test.go" --certs-path "$tmp"
-  run_test "$test_directory/multicluster/target1"
-  link=$(multicluster_link target)
-
-  export context="k3d-source"
-  # Create the emojivoto and multicluster-statefulset namespaces in the source
-  # cluster so that mirror services can be created there.
-  kubectl --context="$context" create namespace emojivoto
-  kubectl --context="$context" create namespace multicluster-statefulset
-  run_test "$test_directory/multicluster/install_test.go" --certs-path "$tmp"
-  echo "$link" | kubectl --context="$context" apply -f -
-  run_test "$test_directory/multicluster/source" 
-  export context="k3d-target"
-  run_test "$test_directory/multicluster/target2" 
+   run_test "$test_directory/multicluster/..." 
 }
 
 run_deep_test() {
@@ -506,7 +480,7 @@ exit_on_err() {
   exit_code=$?
   if [ $exit_code -ne 0 ]; then
     export GH_ANNOTATION=${GH_ANNOTATION:-}
-    if [ -n "$GH_ANNOTATION" ]; then
+    if [ "$GH_ANNOTATION" ]; then
       printf '::error::%s\n' "$1"
     else
       printf '\n=== FAIL: %s\n' "$1"

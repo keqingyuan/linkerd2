@@ -26,32 +26,35 @@ const (
 type (
 	// Values contains the top-level elements in the Helm charts
 	Values struct {
-		ControllerImage              string              `json:"controllerImage"`
-		ControllerReplicas           uint                `json:"controllerReplicas"`
-		ControllerUID                int64               `json:"controllerUID"`
-		EnableH2Upgrade              bool                `json:"enableH2Upgrade"`
-		EnablePodAntiAffinity        bool                `json:"enablePodAntiAffinity"`
-		WebhookFailurePolicy         string              `json:"webhookFailurePolicy"`
-		DisableHeartBeat             bool                `json:"disableHeartBeat"`
-		HeartbeatSchedule            string              `json:"heartbeatSchedule"`
-		Configs                      ConfigJSONs         `json:"configs"`
-		ClusterDomain                string              `json:"clusterDomain"`
-		ClusterNetworks              string              `json:"clusterNetworks"`
-		ImagePullPolicy              string              `json:"imagePullPolicy"`
-		CliVersion                   string              `json:"cliVersion"`
-		ControllerLogLevel           string              `json:"controllerLogLevel"`
-		ControllerLogFormat          string              `json:"controllerLogFormat"`
-		ProxyContainerName           string              `json:"proxyContainerName"`
-		HighAvailability             bool                `json:"highAvailability"`
-		CNIEnabled                   bool                `json:"cniEnabled"`
-		EnableEndpointSlices         bool                `json:"enableEndpointSlices"`
-		ControlPlaneTracing          bool                `json:"controlPlaneTracing"`
-		ControlPlaneTracingNamespace string              `json:"controlPlaneTracingNamespace"`
-		IdentityTrustAnchorsPEM      string              `json:"identityTrustAnchorsPEM"`
-		IdentityTrustDomain          string              `json:"identityTrustDomain"`
-		PrometheusURL                string              `json:"prometheusUrl"`
-		ImagePullSecrets             []map[string]string `json:"imagePullSecrets"`
-		LinkerdVersion               string              `json:"linkerdVersion"`
+		ControllerImage              string                 `json:"controllerImage"`
+		ControllerReplicas           uint                   `json:"controllerReplicas"`
+		ControllerUID                int64                  `json:"controllerUID"`
+		EnableH2Upgrade              bool                   `json:"enableH2Upgrade"`
+		EnablePodAntiAffinity        bool                   `json:"enablePodAntiAffinity"`
+		NodeAffinity                 map[string]interface{} `json:"nodeAffinity"`
+		EnablePodDisruptionBudget    bool                   `json:"enablePodDisruptionBudget"`
+		WebhookFailurePolicy         string                 `json:"webhookFailurePolicy"`
+		DeploymentStrategy           map[string]interface{} `json:"deploymentStrategy,omitempty"`
+		DisableHeartBeat             bool                   `json:"disableHeartBeat"`
+		HeartbeatSchedule            string                 `json:"heartbeatSchedule"`
+		Configs                      ConfigJSONs            `json:"configs"`
+		ClusterDomain                string                 `json:"clusterDomain"`
+		ClusterNetworks              string                 `json:"clusterNetworks"`
+		ImagePullPolicy              string                 `json:"imagePullPolicy"`
+		CliVersion                   string                 `json:"cliVersion"`
+		ControllerLogLevel           string                 `json:"controllerLogLevel"`
+		ControllerLogFormat          string                 `json:"controllerLogFormat"`
+		ProxyContainerName           string                 `json:"proxyContainerName"`
+		HighAvailability             bool                   `json:"highAvailability"`
+		CNIEnabled                   bool                   `json:"cniEnabled"`
+		EnableEndpointSlices         bool                   `json:"enableEndpointSlices"`
+		ControlPlaneTracing          bool                   `json:"controlPlaneTracing"`
+		ControlPlaneTracingNamespace string                 `json:"controlPlaneTracingNamespace"`
+		IdentityTrustAnchorsPEM      string                 `json:"identityTrustAnchorsPEM"`
+		IdentityTrustDomain          string                 `json:"identityTrustDomain"`
+		PrometheusURL                string                 `json:"prometheusUrl"`
+		ImagePullSecrets             []map[string]string    `json:"imagePullSecrets"`
+		LinkerdVersion               string                 `json:"linkerdVersion"`
 
 		PodAnnotations    map[string]string `json:"podAnnotations"`
 		PodLabels         map[string]string `json:"podLabels"`
@@ -67,7 +70,6 @@ type (
 		PolicyValidator  *Webhook          `json:"policyValidator"`
 		NodeSelector     map[string]string `json:"nodeSelector"`
 		Tolerations      []interface{}     `json:"tolerations"`
-		Stage            string            `json:"stage"`
 
 		DestinationResources   *Resources `json:"destinationResources"`
 		HeartbeatResources     *Resources `json:"heartbeatResources"`
@@ -110,6 +112,7 @@ type (
 		Await                         bool             `json:"await"`
 		DefaultInboundPolicy          string           `json:"defaultInboundPolicy"`
 		AccessLog                     string           `json:"accessLog"`
+		ShutdownGracePeriod           string           `json:"shutdownGracePeriod"`
 	}
 
 	// ProxyInit contains the fields to set the proxy-init container
@@ -126,6 +129,7 @@ type (
 		Resources            *Resources       `json:"resources"`
 		CloseWaitTimeoutSecs int64            `json:"closeWaitTimeoutSecs"`
 		RunAsRoot            bool             `json:"runAsRoot"`
+		IptablesMode         string           `json:"iptablesMode"`
 	}
 
 	// DebugContainer contains the fields to set the debugging sidecar
@@ -139,6 +143,7 @@ type (
 		Resources          *Resources `json:"resources"`
 		LogLevel           string     `json:"logLevel"`
 		DefaultAllowPolicy string     `json:"defaultAllowPolicy"`
+		ProbeNetworks      []string   `json:"probeNetworks"`
 	}
 
 	// Image contains the details to define a container image

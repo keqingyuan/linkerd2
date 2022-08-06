@@ -195,6 +195,10 @@ spec:
       {{- end }}
       nodeSelector:
         kubernetes.io/os: linux
+      {{- if .Values.nodeAffinity }}
+      affinity:
+      {{- include "linkerd.node-affinity" . | nindent 8 }}
+      {{- end }}
       hostNetwork: true
       serviceAccountName: linkerd-cni
       {{- if .Values.priorityClassName }}
@@ -237,7 +241,7 @@ spec:
               command:
               - /bin/sh
               - -c
-              - kill -15 1
+              - kill -15 1; sleep 15s
         volumeMounts:
         {{- if ne .Values.destCNIBinDir .Values.destCNINetDir }}
         - mountPath: /host{{.Values.destCNIBinDir}}

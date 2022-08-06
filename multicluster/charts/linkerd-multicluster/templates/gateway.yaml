@@ -1,5 +1,6 @@
 {{if .Values.gateway.enabled -}}
 ---
+{{- $tree := deepCopy . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,16 +32,18 @@ spec:
         linkerd.io/inject: enabled
         config.linkerd.io/proxy-require-identity-inbound-ports: "{{.Values.gateway.port}}"
         config.linkerd.io/enable-gateway: "true"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
       labels:
         app: {{.Values.gateway.name}}
     spec:
-      {{- if .Values.enablePodAntiAffinity -}}
-      {{- $local := dict "label" "app" "component" .Values.gateway.name -}}
-      {{- include "linkerd.pod-affinity" $local | nindent 6 -}}
-      {{- end }}
+      {{- $_ := set $tree "component" .Values.gateway.name -}}
+      {{- $_ := set $tree "label" "app" -}}
+      {{- include "linkerd.affinity" $tree | nindent 6 }}
       containers:
         - name: pause
           image: gcr.io/google_containers/pause:3.2
+          securityContext:
+            runAsUser: {{.Values.gateway.UID}}
       serviceAccountName: {{.Values.gateway.name}}
 {{- if .Values.enablePodAntiAffinity }}
 ---

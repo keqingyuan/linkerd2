@@ -1,15 +1,23 @@
 use crate::k8s::{
     labels,
-    policy::{Server, ServerAuthorization, ServerAuthorizationSpec, ServerSpec},
+    policy::{
+        httproute, AuthorizationPolicy, AuthorizationPolicySpec, HttpRoute, HttpRouteSpec,
+        LocalTargetRef, MeshTLSAuthentication, MeshTLSAuthenticationSpec, NamespacedTargetRef,
+        NetworkAuthentication, NetworkAuthenticationSpec, Server, ServerAuthorization,
+        ServerAuthorizationSpec, ServerSpec,
+    },
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 use futures::future;
 use hyper::{body::Buf, http, Body, Request, Response};
+use k8s_openapi::api::core::v1::{Namespace, ServiceAccount};
 use kube::{core::DynamicObject, Resource, ResourceExt};
+use linkerd_policy_controller_core as core;
+use linkerd_policy_controller_k8s_index as index;
 use serde::de::DeserializeOwned;
 use std::task;
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 #[derive(Clone)]
 pub struct Admission {
@@ -47,7 +55,7 @@ impl hyper::service::Service<Request<Body>> for Admission {
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        tracing::trace!(?req);
+        trace!(?req);
         if req.method() != http::Method::POST || req.uri().path() != "/" {
             return Box::pin(future::ok(
                 Response::builder()
@@ -67,7 +75,7 @@ impl hyper::service::Service<Request<Body>> for Admission {
                     return json_response(AdmissionResponse::invalid(error).into_review());
                 }
             };
-            tracing::trace!(?review);
+            trace!(?review);
 
             let rsp = match review.try_into() {
                 Ok(req) => {
@@ -91,6 +99,18 @@ impl Admission {
     }
 
     async fn admit(self, req: AdmissionRequest) -> AdmissionResponse {
+        if is_kind::<AuthorizationPolicy>(&req) {
+            return self.admit_spec::<AuthorizationPolicySpec>(req).await;
+        }
+
+        if is_kind::<MeshTLSAuthentication>(&req) {
+            return self.admit_spec::<MeshTLSAuthenticationSpec>(req).await;
+        }
+
+        if is_kind::<NetworkAuthentication>(&req) {
+            return self.admit_spec::<NetworkAuthenticationSpec>(req).await;
+        }
+
         if is_kind::<Server>(&req) {
             return self.admit_spec::<ServerSpec>(req).await;
         };
@@ -98,6 +118,10 @@ impl Admission {
         if is_kind::<ServerAuthorization>(&req) {
             return self.admit_spec::<ServerAuthorizationSpec>(req).await;
         };
+
+        if is_kind::<HttpRoute>(&req) {
+            return self.admit_spec::<HttpRouteSpec>(req).await;
+        }
 
         AdmissionResponse::invalid(format_args!(
             "unsupported resource type: {}.{}.{}",
@@ -110,18 +134,19 @@ impl Admission {
         T: DeserializeOwned,
         Self: Validate<T>,
     {
-        let kind = req.kind.kind.clone();
         let rsp = AdmissionResponse::from(&req);
+
+        let kind = req.kind.kind.clone();
         let (ns, name, spec) = match parse_spec::<T>(req) {
             Ok(spec) => spec,
             Err(error) => {
-                info!(%error, "failed to parse {} spec", kind);
+                info!(%error, "Failed to parse {} spec", kind);
                 return rsp.deny(error);
             }
         };
 
         if let Err(error) = self.validate(&ns, &name, spec).await {
-            info!(%error, %ns, %name, %kind, "denied");
+            info!(%error, %ns, %name, %kind, "Denied");
             return rsp.deny(error);
         }
 
@@ -135,21 +160,8 @@ where
     T::DynamicType: Default,
 {
     let dt = Default::default();
-    *req.kind.group == *T::group(&dt) && *req.kind.kind == *T::kind(&dt)
-}
-
-/// Detects whether two pod selectors can select the same pod
-//
-// TODO(ver) We can probably detect overlapping selectors more effectively. For
-// example, if `left` selects pods with 'foo=bar' and `right` selects pods with
-// 'foo', we should indicate the selectors overlap. It's a bit tricky to work
-// through all of the cases though, so we'll just punt for now.
-fn overlaps(left: &labels::Selector, right: &labels::Selector) -> bool {
-    if left.selects_all() || right.selects_all() {
-        return true;
-    }
-
-    left == right
+    req.kind.group.eq_ignore_ascii_case(&*T::group(&dt))
+        && req.kind.kind.eq_ignore_ascii_case(&*T::kind(&dt))
 }
 
 fn json_response(rsp: AdmissionReview) -> Result<Response<Body>, Error> {
@@ -169,7 +181,7 @@ fn parse_spec<T: DeserializeOwned>(req: AdmissionRequest) -> Result<(String, Str
     let ns = obj
         .namespace()
         .ok_or_else(|| anyhow!("admission request missing 'namespace'"))?;
-    let name = obj.name();
+    let name = obj.name_any();
 
     let spec = {
         let data = obj
@@ -181,6 +193,112 @@ fn parse_spec<T: DeserializeOwned>(req: AdmissionRequest) -> Result<(String, Str
     };
 
     Ok((ns, name, spec))
+}
+
+/// Validates the target of an `AuthorizationPolicy`.
+fn validate_policy_target(ns: &str, tgt: &LocalTargetRef) -> Result<()> {
+    if tgt.targets_kind::<Server>() {
+        return Ok(());
+    }
+
+    if tgt.targets_kind::<HttpRoute>() {
+        return Ok(());
+    }
+
+    if tgt.targets_kind::<Namespace>() {
+        if tgt.name != ns {
+            bail!("cannot target another namespace: {}", tgt.name);
+        }
+        return Ok(());
+    }
+
+    bail!("invalid targetRef kind: {}", tgt.canonical_kind());
+}
+
+#[async_trait::async_trait]
+impl Validate<AuthorizationPolicySpec> for Admission {
+    async fn validate(self, ns: &str, _name: &str, spec: AuthorizationPolicySpec) -> Result<()> {
+        validate_policy_target(ns, &spec.target_ref)?;
+
+        let mtls_authns_count = spec
+            .required_authentication_refs
+            .iter()
+            .filter(|authn| authn.targets_kind::<MeshTLSAuthentication>())
+            .count();
+        if mtls_authns_count > 1 {
+            bail!("only a single MeshTLSAuthentication may be set");
+        }
+
+        let sa_authns_count = spec
+            .required_authentication_refs
+            .iter()
+            .filter(|authn| authn.targets_kind::<ServiceAccount>())
+            .count();
+        if sa_authns_count > 1 {
+            bail!("only a single ServiceAccount may be set");
+        }
+
+        if mtls_authns_count + sa_authns_count > 1 {
+            bail!("a MeshTLSAuthentication and ServiceAccount may not be set together");
+        }
+
+        let net_authns_count = spec
+            .required_authentication_refs
+            .iter()
+            .filter(|authn| authn.targets_kind::<NetworkAuthentication>())
+            .count();
+        if net_authns_count > 1 {
+            bail!("only a single NetworkAuthentication may be set");
+        }
+
+        if mtls_authns_count + sa_authns_count + net_authns_count
+            < spec.required_authentication_refs.len()
+        {
+            let kinds = spec
+                .required_authentication_refs
+                .iter()
+                .filter(|authn| {
+                    !authn.targets_kind::<MeshTLSAuthentication>()
+                        && !authn.targets_kind::<NetworkAuthentication>()
+                        && !authn.targets_kind::<ServiceAccount>()
+                })
+                .map(|authn| authn.canonical_kind())
+                .collect::<Vec<_>>();
+            bail!("unsupported authentication kind(s): {}", kinds.join(", "));
+        }
+
+        // Confirm that the index will be able to read this spec.
+        index::authorization_policy::validate(spec)?;
+
+        Ok(())
+    }
+}
+
+fn validate_identity_ref(id: &NamespacedTargetRef) -> Result<()> {
+    if id.targets_kind::<ServiceAccount>() {
+        return Ok(());
+    }
+
+    if id.targets_kind::<Namespace>() {
+        if id.namespace.is_some() {
+            bail!("Namespace identity_ref is cluster-scoped and cannot have a namespace");
+        }
+        return Ok(());
+    }
+
+    bail!("invalid identity target kind: {}", id.canonical_kind());
+}
+
+#[async_trait::async_trait]
+impl Validate<MeshTLSAuthenticationSpec> for Admission {
+    async fn validate(self, _ns: &str, _name: &str, spec: MeshTLSAuthenticationSpec) -> Result<()> {
+        // The CRD validates identity strings, but does not validate identity references.
+        for id in spec.identity_refs.iter().flatten() {
+            validate_identity_ref(id)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -197,11 +315,56 @@ impl Validate<ServerSpec> for Admission {
             .list(&kube::api::ListParams::default())
             .await?;
         for server in servers.items.into_iter() {
-            if server.name() != name
+            if server.name_unchecked() != name
                 && server.spec.port == spec.port
-                && overlaps(&server.spec.pod_selector, &spec.pod_selector)
+                && Self::overlaps(&server.spec.pod_selector, &spec.pod_selector)
             {
                 bail!("identical server spec already exists");
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Admission {
+    /// Detects whether two pod selectors can select the same pod
+    //
+    // TODO(ver) We can probably detect overlapping selectors more effectively. For
+    // example, if `left` selects pods with 'foo=bar' and `right` selects pods with
+    // 'foo', we should indicate the selectors overlap. It's a bit tricky to work
+    // through all of the cases though, so we'll just punt for now.
+    fn overlaps(left: &labels::Selector, right: &labels::Selector) -> bool {
+        if left.selects_all() || right.selects_all() {
+            return true;
+        }
+
+        left == right
+    }
+}
+
+#[async_trait::async_trait]
+impl Validate<NetworkAuthenticationSpec> for Admission {
+    async fn validate(self, _ns: &str, _name: &str, spec: NetworkAuthenticationSpec) -> Result<()> {
+        if spec.networks.is_empty() {
+            bail!("at least one network must be specified");
+        }
+        for net in spec.networks.into_iter() {
+            for except in net.except.into_iter().flatten() {
+                if except.contains(&net.cidr) {
+                    bail!(
+                        "cidr '{}' is completely negated by exception '{}'",
+                        net.cidr,
+                        except
+                    );
+                }
+                if !net.cidr.contains(&except) {
+                    bail!(
+                        "cidr '{}' does not include exception '{}'",
+                        net.cidr,
+                        except
+                    );
+                }
             }
         }
 
@@ -212,6 +375,23 @@ impl Validate<ServerSpec> for Admission {
 #[async_trait::async_trait]
 impl Validate<ServerAuthorizationSpec> for Admission {
     async fn validate(self, _ns: &str, _name: &str, spec: ServerAuthorizationSpec) -> Result<()> {
+        if let Some(mtls) = spec.client.mesh_tls.as_ref() {
+            if spec.client.unauthenticated {
+                bail!("`unauthenticated` must be false if `mesh_tls` is specified");
+            }
+            if mtls.unauthenticated_tls {
+                let ids = mtls.identities.as_ref().map(|ids| ids.len()).unwrap_or(0);
+                let sas = mtls
+                    .service_accounts
+                    .as_ref()
+                    .map(|sas| sas.len())
+                    .unwrap_or(0);
+                if ids + sas > 0 {
+                    bail!("`unauthenticatedTLS` be false if any `identities` or `service_accounts` is specified");
+                }
+            }
+        }
+
         for net in spec.client.networks.into_iter().flatten() {
             for except in net.except.into_iter().flatten() {
                 if except.contains(&net.cidr) {
@@ -228,6 +408,77 @@ impl Validate<ServerAuthorizationSpec> for Admission {
                         except
                     );
                 }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl Validate<HttpRouteSpec> for Admission {
+    async fn validate(self, _ns: &str, _name: &str, spec: HttpRouteSpec) -> Result<()> {
+        use index::http_route::convert;
+
+        fn validate_match(
+            httproute::HttpRouteMatch {
+                path,
+                headers,
+                query_params,
+                method,
+            }: httproute::HttpRouteMatch,
+        ) -> Result<()> {
+            let _ = path.map(convert::path_match).transpose()?;
+            let _ = method
+                .as_deref()
+                .map(core::http_route::Method::try_from)
+                .transpose()?;
+
+            for q in query_params.into_iter().flatten() {
+                convert::query_param_match(q)?;
+            }
+
+            for h in headers.into_iter().flatten() {
+                convert::header_match(h)?;
+            }
+
+            Ok(())
+        }
+
+        fn validate_filter(filter: httproute::HttpRouteFilter) -> Result<()> {
+            match filter {
+                httproute::HttpRouteFilter::RequestHeaderModifier {
+                    request_header_modifier,
+                } => convert::req_header_modifier(request_header_modifier).map(|_| ()),
+                httproute::HttpRouteFilter::RequestRedirect { request_redirect } => {
+                    convert::req_redirect(request_redirect).map(|_| ())
+                }
+            }
+        }
+
+        // Ensure that the `HTTPRoute` targets a `Server` as its parent ref
+        let all_target_servers = spec
+            .inner
+            .parent_refs
+            .iter()
+            .flatten()
+            .all(httproute::parent_ref_targets_kind::<Server>);
+        ensure!(
+            all_target_servers,
+            "policy.linkerd.io HTTPRoutes must target only Server resources"
+        );
+
+        // Validate the rules in this spec.
+        // This is essentially equivalent to the indexer's conversion function
+        // from `HttpRouteSpec` to `InboundRouteBinding`, except that we don't
+        // actually allocate stuff in order to return an `InboundRouteBinding`.
+        for httproute::HttpRouteRule { filters, matches } in spec.rules.into_iter().flatten() {
+            for m in matches.into_iter().flatten() {
+                validate_match(m)?;
+            }
+
+            for f in filters.into_iter().flatten() {
+                validate_filter(f)?;
             }
         }
 

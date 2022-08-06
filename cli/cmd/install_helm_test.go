@@ -5,9 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/linkerd/linkerd2/pkg/charts"
 	l5dcharts "github.com/linkerd/linkerd2/pkg/charts/linkerd2"
+	"github.com/linkerd/linkerd2/pkg/charts/static"
+	"github.com/linkerd/linkerd2/pkg/k8s"
 	"github.com/linkerd/linkerd2/testutil"
 	"helm.sh/helm/v3/pkg/chart"
+	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/engine"
 	"sigs.k8s.io/yaml"
@@ -18,14 +22,14 @@ func TestRenderHelm(t *testing.T) {
 	// override certain defaults with pinned values.
 	// use the Helm lib to render the templates.
 	t.Run("Non-HA mode", func(t *testing.T) {
-		chartCrds := chartCrds(t, "", "111", "222")
+		chartCrds := chartCrds(t)
 		chartControlPlane := chartControlPlane(t, false, "", "111", "222")
 		testRenderHelm(t, chartCrds, "install_helm_crds_output.golden")
 		testRenderHelm(t, chartControlPlane, "install_helm_control_plane_output.golden")
 	})
 
 	t.Run("HA mode", func(t *testing.T) {
-		chartCrds := chartCrds(t, "", "111", "222")
+		chartCrds := chartCrds(t)
 		chartControlPlane := chartControlPlane(t, true, "", "111", "222")
 		testRenderHelm(t, chartCrds, "install_helm_crds_output_ha.golden")
 		testRenderHelm(t, chartControlPlane, "install_helm_control_plane_output_ha.golden")
@@ -168,22 +172,12 @@ func testRenderHelm(t *testing.T, linkerd2Chart *chart.Chart, goldenFileName str
 		}
 	}
 
-	testDataDiffer.DiffTestdata(t, goldenFileName, buf.String())
+	if err := testDataDiffer.DiffTestYAML(goldenFileName, buf.String()); err != nil {
+		t.Error(err)
+	}
 }
 
-func chartCrds(t *testing.T, additionalConfig string, ignoreOutboundPorts string, ignoreInboundPorts string) *chart.Chart {
-	values, err := readTestValues(false, ignoreOutboundPorts, ignoreInboundPorts)
-	if err != nil {
-		t.Fatal("Unexpected error", err)
-	}
-
-	if additionalConfig != "" {
-		err := yaml.Unmarshal([]byte(additionalConfig), values)
-		if err != nil {
-			t.Fatal("Unexpected error", err)
-		}
-	}
-
+func chartCrds(t *testing.T) *chart.Chart {
 	partialPaths := []string{
 		"templates/_proxy.tpl",
 		"templates/_proxy-init.tpl",
@@ -200,18 +194,20 @@ func chartCrds(t *testing.T, additionalConfig string, ignoreOutboundPorts string
 		"templates/_pull-secrets.tpl",
 	}
 
-	chartPartials := chartPartials(t, partialPaths)
+	chartPartials := chartPartials(partialPaths)
 
-	rawValues, err := yaml.Marshal(values)
-	if err != nil {
-		t.Fatal("Unexpected error", err)
+	// Load defaults from values.yaml
+	valuesFile := &loader.BufferedFile{Name: l5dcharts.HelmChartDirCrds + "/values.yaml"}
+	if err := charts.ReadFile(static.Templates, "/", valuesFile); err != nil {
+		t.Fatal(err)
 	}
+	defaultValues := make(map[string]interface{})
+	err := yaml.Unmarshal(valuesFile.Data, &defaultValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultValues["cliVersion"] = k8s.CreatedByAnnotationValue()
 
-	var mapValues chartutil.Values
-	err = yaml.Unmarshal(rawValues, &mapValues)
-	if err != nil {
-		t.Fatal("Unexpected error", err)
-	}
 	linkerd2Chart := &chart.Chart{
 		Metadata: &chart.Metadata{
 			Name: helmDefaultChartNameCrds,
@@ -219,7 +215,7 @@ func chartCrds(t *testing.T, additionalConfig string, ignoreOutboundPorts string
 				filepath.Join("..", "..", "..", "charts", "linkerd-crds"),
 			},
 		},
-		Values: mapValues,
+		Values: defaultValues,
 	}
 
 	linkerd2Chart.AddDependency(chartPartials)
@@ -232,7 +228,7 @@ func chartCrds(t *testing.T, additionalConfig string, ignoreOutboundPorts string
 
 	for _, template := range linkerd2Chart.Templates {
 		filepath := filepath.Join(linkerd2Chart.Metadata.Sources[0], template.Name)
-		template.Data = []byte(testutil.ReadTestdata(t, filepath))
+		template.Data = []byte(testutil.ReadTestdata(filepath))
 	}
 
 	return linkerd2Chart
@@ -267,7 +263,7 @@ func chartControlPlane(t *testing.T, ha bool, additionalConfig string, ignoreOut
 		"templates/_pull-secrets.tpl",
 	}
 
-	chartPartials := chartPartials(t, partialPaths)
+	chartPartials := chartPartials(partialPaths)
 
 	rawValues, err := yaml.Marshal(values)
 	if err != nil {
@@ -291,13 +287,7 @@ func chartControlPlane(t *testing.T, ha bool, additionalConfig string, ignoreOut
 
 	linkerd2Chart.AddDependency(chartPartials)
 
-	for _, filepath := range templatesConfigStage {
-		linkerd2Chart.Templates = append(linkerd2Chart.Templates, &chart.File{
-			Name: filepath,
-		})
-	}
-
-	for _, filepath := range templatesControlPlaneStage {
+	for _, filepath := range templatesControlPlane {
 		linkerd2Chart.Templates = append(linkerd2Chart.Templates, &chart.File{
 			Name: filepath,
 		})
@@ -305,13 +295,13 @@ func chartControlPlane(t *testing.T, ha bool, additionalConfig string, ignoreOut
 
 	for _, template := range linkerd2Chart.Templates {
 		filepath := filepath.Join(linkerd2Chart.Metadata.Sources[0], template.Name)
-		template.Data = []byte(testutil.ReadTestdata(t, filepath))
+		template.Data = []byte(testutil.ReadTestdata(filepath))
 	}
 
 	return linkerd2Chart
 }
 
-func chartPartials(t *testing.T, paths []string) *chart.Chart {
+func chartPartials(paths []string) *chart.Chart {
 	var partialTemplates []*chart.File
 	for _, path := range paths {
 		partialTemplates = append(partialTemplates, &chart.File{Name: path})
@@ -330,7 +320,7 @@ func chartPartials(t *testing.T, paths []string) *chart.Chart {
 	for _, template := range chart.Templates {
 		template := template
 		filepath := filepath.Join(chart.Metadata.Sources[0], template.Name)
-		template.Data = []byte(testutil.ReadTestdata(t, filepath))
+		template.Data = []byte(testutil.ReadTestdata(filepath))
 	}
 
 	return chart

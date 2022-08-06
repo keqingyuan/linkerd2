@@ -23,8 +23,12 @@
 #![deny(warnings, rust_2018_idioms)]
 #![forbid(unsafe_code)]
 
+pub mod authorization_policy;
 mod defaults;
+pub mod http_route;
 mod index;
+mod meshtls_authentication;
+mod network_authentication;
 mod pod;
 mod server;
 mod server_authorization;
@@ -59,6 +63,9 @@ pub struct ClusterInfo {
 
     /// The cluster-wide default protocol detection timeout.
     pub default_detect_timeout: time::Duration,
+
+    /// The networks that probes are expected to be from.
+    pub probe_networks: Vec<IpNet>,
 }
 
 impl ClusterInfo {
@@ -66,6 +73,13 @@ impl ClusterInfo {
         format!(
             "{}.{}.serviceaccount.identity.{}.{}",
             sa, ns, self.control_plane_ns, self.identity_domain
+        )
+    }
+
+    fn namespace_identity(&self, ns: &str) -> String {
+        format!(
+            "*.{}.serviceaccount.identity.{}.{}",
+            ns, self.control_plane_ns, self.identity_domain
         )
     }
 }

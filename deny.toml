@@ -11,11 +11,7 @@ vulnerability = "deny"
 unmaintained = "warn"
 yanked = "deny"
 notice = "warn"
-ignore = [
-    # https://github.com/kube-rs/kube-rs/issues/650
-    # https://github.com/kube-rs/kube-rs/issues/660
-    "RUSTSEC-2020-0159",
-]
+ignore = []
 
 [licenses]
 unlicensed = "deny"
@@ -26,16 +22,29 @@ allow-osi-fsf-free = "neither"
 default = "deny"
 confidence-threshold = 0.8
 exceptions = [
-    { allow = ["ISC", "MIT", "OpenSSL"], name = "ring", version = "*" },
+    { allow = [
+        "ISC",
+        "MIT",
+        "OpenSSL",
+    ], name = "ring", version = "*" },
+
+    # The Unicode-DFS--2016 license is necessary for unicode-ident because they
+    # use data from the unicode tables to generate the tables which are
+    # included in the application. We do not distribute those data files so
+    # this is not a problem for us. See https://github.com/dtolnay/unicode-ident/pull/9/files
+    # for more details.
+    { allow = [
+        "MIT",
+        "Apache-2.0",
+        "Unicode-DFS-2016",
+    ], name = "unicode-ident" },
 ]
 
 [[licenses.clarify]]
 name = "ring"
 version = "*"
 expression = "MIT AND ISC AND OpenSSL"
-license-files = [
-    { path = "LICENSE", hash = 0xbd0eed23 },
-]
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 [bans]
 multiple-versions = "deny"
@@ -44,13 +53,8 @@ wildcards = "allow"
 highlight = "all"
 deny = []
 skip = [
-    # Waiting on a prost-build release that includes
-    # https://github.com/tokio-rs/prost/pull/583
-    { name = "heck", version = "0.3" },
     # Waiting on h2, tonic, etc
     { name = "tokio-util", version = "0.6" },
-    # Waiting on hyper-rustls, etc
-    { name = "rustls-pemfile", version = "0.2" },
 ]
 
 [sources]
@@ -58,3 +62,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
+
+[sources.allow-org]
+github = []

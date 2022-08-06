@@ -1,16 +1,25 @@
 #![deny(warnings, rust_2018_idioms)]
 #![forbid(unsafe_code)]
 
+mod http_route;
+
 use futures::prelude::*;
-use linkerd2_proxy_api::inbound::{
-    self as proto,
-    inbound_server_policies_server::{InboundServerPolicies, InboundServerPoliciesServer},
+use linkerd2_proxy_api::{
+    self as api,
+    inbound::{
+        self as proto,
+        inbound_server_policies_server::{InboundServerPolicies, InboundServerPoliciesServer},
+    },
+    meta::{metadata, Metadata},
 };
 use linkerd_policy_controller_core::{
-    ClientAuthentication, ClientAuthorization, DiscoverInboundServer, IdentityMatch, InboundServer,
-    InboundServerStream, IpNet, NetworkMatch, ProxyProtocol,
+    http_route::{InboundFilter, InboundHttpRoute, InboundHttpRouteRule},
+    AuthorizationRef, ClientAuthentication, ClientAuthorization, DiscoverInboundServer,
+    IdentityMatch, InboundHttpRouteRef, InboundServer, InboundServerStream, IpNet, NetworkMatch,
+    ProxyProtocol, ServerRef,
 };
-use std::sync::Arc;
+use maplit::*;
+use std::{num::NonZeroU16, sync::Arc};
 use tracing::trace;
 
 #[derive(Clone, Debug)]
@@ -24,7 +33,7 @@ pub struct Server<T> {
 
 impl<T> Server<T>
 where
-    T: DiscoverInboundServer<(String, String, u16)> + Send + Sync + 'static,
+    T: DiscoverInboundServer<(String, String, NonZeroU16)> + Send + Sync + 'static,
 {
     pub fn new(discover: T, cluster_networks: Vec<IpNet>, drain: drain::Watch) -> Self {
         Self {
@@ -38,17 +47,22 @@ where
         self,
         addr: std::net::SocketAddr,
         shutdown: impl std::future::Future<Output = ()>,
-    ) -> Result<(), tonic::transport::Error> {
-        tonic::transport::Server::builder()
-            .add_service(InboundServerPoliciesServer::new(self))
-            .serve_with_shutdown(addr, shutdown)
+    ) -> hyper::Result<()> {
+        let svc = InboundServerPoliciesServer::new(self);
+        hyper::Server::bind(&addr)
+            .http2_only(true)
+            .tcp_nodelay(true)
+            .serve(hyper::service::make_service_fn(move |_| {
+                future::ok::<_, std::convert::Infallible>(svc.clone())
+            }))
+            .with_graceful_shutdown(shutdown)
             .await
     }
 
     fn check_target(
         &self,
         proto::PortSpec { workload, port }: proto::PortSpec,
-    ) -> Result<(String, String, u16), tonic::Status> {
+    ) -> Result<(String, String, NonZeroU16), tonic::Status> {
         // Parse a workload name in the form namespace:name.
         let (ns, name) = match workload.split_once(':') {
             None => {
@@ -67,15 +81,9 @@ where
         };
 
         // Ensure that the port is in the valid range.
-        let port = {
-            if port == 0 || port > std::u16::MAX as u32 {
-                return Err(tonic::Status::invalid_argument(format!(
-                    "Invalid port: {}",
-                    port
-                )));
-            }
-            port as u16
-        };
+        let port = u16::try_from(port)
+            .and_then(NonZeroU16::try_from)
+            .map_err(|_| tonic::Status::invalid_argument(format!("Invalid port: {port}")))?;
 
         Ok((ns.to_string(), name.to_string(), port))
     }
@@ -84,7 +92,7 @@ where
 #[async_trait::async_trait]
 impl<T> InboundServerPolicies for Server<T>
 where
-    T: DiscoverInboundServer<(String, String, u16)> + Send + Sync + 'static,
+    T: DiscoverInboundServer<(String, String, NonZeroU16)> + Send + Sync + 'static,
 {
     async fn get_port(
         &self,
@@ -165,14 +173,19 @@ fn to_server(srv: &InboundServer, cluster_networks: &[IpNet]) -> proto::Server {
         kind: match srv.protocol {
             ProxyProtocol::Detect { timeout } => Some(proto::proxy_protocol::Kind::Detect(
                 proto::proxy_protocol::Detect {
-                    timeout: Some(timeout.into()),
+                    timeout: timeout.try_into().map_err(|error| tracing::warn!(%error, "failed to convert protocol detect timeout to protobuf")).ok(),
+                    http_routes: to_http_route_list(&srv.http_routes, cluster_networks),
                 },
             )),
             ProxyProtocol::Http1 => Some(proto::proxy_protocol::Kind::Http1(
-                proto::proxy_protocol::Http1::default(),
+                proto::proxy_protocol::Http1 {
+                    routes: to_http_route_list(&srv.http_routes, cluster_networks),
+                },
             )),
             ProxyProtocol::Http2 => Some(proto::proxy_protocol::Kind::Http2(
-                proto::proxy_protocol::Http2::default(),
+                proto::proxy_protocol::Http2 {
+                    routes: to_http_route_list(&srv.http_routes, cluster_networks),
+                },
             )),
             ProxyProtocol::Grpc => Some(proto::proxy_protocol::Kind::Grpc(
                 proto::proxy_protocol::Grpc::default(),
@@ -194,9 +207,18 @@ fn to_server(srv: &InboundServer, cluster_networks: &[IpNet]) -> proto::Server {
         .collect();
     trace!(?authorizations);
 
-    let labels = vec![("name".to_string(), srv.name.to_string())]
-        .into_iter()
-        .collect();
+    let labels = match &srv.reference {
+        ServerRef::Default(name) => convert_args!(hashmap!(
+            "group" => "",
+            "kind" => "default",
+            "name" => *name,
+        )),
+        ServerRef::Server(name) => convert_args!(hashmap!(
+            "group" => "policy.linkerd.io",
+            "kind" => "server",
+            "name" => name,
+        )),
+    };
     trace!(?labels);
 
     proto::Server {
@@ -208,13 +230,53 @@ fn to_server(srv: &InboundServer, cluster_networks: &[IpNet]) -> proto::Server {
 }
 
 fn to_authz(
-    name: impl ToString,
+    reference: &AuthorizationRef,
     ClientAuthorization {
         networks,
         authentication,
     }: &ClientAuthorization,
     cluster_networks: &[IpNet],
 ) -> proto::Authz {
+    let meta = Metadata {
+        kind: Some(match reference {
+            AuthorizationRef::Default(name) => metadata::Kind::Default(name.to_string()),
+            AuthorizationRef::AuthorizationPolicy(name) => {
+                metadata::Kind::Resource(api::meta::Resource {
+                    group: "policy.linkerd.io".to_string(),
+                    kind: "authorizationpolicy".to_string(),
+                    name: name.to_string(),
+                })
+            }
+            AuthorizationRef::ServerAuthorization(name) => {
+                metadata::Kind::Resource(api::meta::Resource {
+                    group: "policy.linkerd.io".to_string(),
+                    kind: "serverauthorization".to_string(),
+                    name: name.clone(),
+                })
+            }
+        }),
+    };
+
+    // TODO labels are deprecated, but we want to continue to support them for older proxies. This
+    // can be removed in 2.13.
+    let labels = match reference {
+        AuthorizationRef::Default(name) => convert_args!(hashmap!(
+            "group" => "",
+            "kind" => "default",
+            "name" => *name,
+        )),
+        AuthorizationRef::ServerAuthorization(name) => convert_args!(hashmap!(
+            "group" => "policy.linkerd.io",
+            "kind" => "serverauthorization",
+            "name" => name,
+        )),
+        AuthorizationRef::AuthorizationPolicy(name) => convert_args!(hashmap!(
+            "group" => "policy.linkerd.io",
+            "kind" => "authorizationpolicy",
+            "name" => name,
+        )),
+    };
+
     let networks = if networks.is_empty() {
         cluster_networks
             .iter()
@@ -232,10 +294,6 @@ fn to_authz(
             })
             .collect()
     };
-
-    let labels = vec![("name".to_string(), name.to_string())]
-        .into_iter()
-        .collect();
 
     let authn = match authentication {
         ClientAuthentication::Unauthenticated => proto::Authn {
@@ -287,8 +345,110 @@ fn to_authz(
     };
 
     proto::Authz {
-        networks,
+        metadata: Some(meta),
         labels,
+        networks,
         authentication: Some(authn),
+    }
+}
+
+fn to_http_route_list<'r>(
+    routes: impl IntoIterator<Item = (&'r InboundHttpRouteRef, &'r InboundHttpRoute)>,
+    cluster_networks: &[IpNet],
+) -> Vec<proto::HttpRoute> {
+    // Per the Gateway API spec:
+    //
+    // > If ties still exist across multiple Routes, matching precedence MUST be
+    // > determined in order of the following criteria, continuing on ties:
+    // >
+    // >    The oldest Route based on creation timestamp.
+    // >    The Route appearing first in alphabetical order by
+    // >   "{namespace}/{name}".
+    //
+    // Note that we don't need to include the route's namespace in this
+    // comparison, because all these routes will exist in the same
+    // namespace.
+    let mut route_list = routes.into_iter().collect::<Vec<_>>();
+    route_list.sort_by(|(a_ref, a), (b_ref, b)| {
+        let by_ts = match (&a.creation_timestamp, &b.creation_timestamp) {
+            (Some(a_ts), Some(b_ts)) => a_ts.cmp(b_ts),
+            (None, None) => std::cmp::Ordering::Equal,
+            // Routes with timestamps are preferred over routes without.
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+        };
+        by_ts.then_with(|| a_ref.cmp(b_ref))
+    });
+
+    route_list
+        .into_iter()
+        .map(|(route_ref, route)| to_http_route(route_ref, route.clone(), cluster_networks))
+        .collect()
+}
+
+fn to_http_route(
+    reference: &InboundHttpRouteRef,
+    InboundHttpRoute {
+        hostnames,
+        rules,
+        authorizations,
+        creation_timestamp: _,
+    }: InboundHttpRoute,
+    cluster_networks: &[IpNet],
+) -> proto::HttpRoute {
+    let metadata = Metadata {
+        kind: Some(match reference {
+            InboundHttpRouteRef::Default(name) => metadata::Kind::Default(name.to_string()),
+            InboundHttpRouteRef::Linkerd(name) => metadata::Kind::Resource(api::meta::Resource {
+                group: "policy.linkerd.io".to_string(),
+                kind: "HTTPRoute".to_string(),
+                name: name.to_string(),
+            }),
+        }),
+    };
+
+    let hosts = hostnames
+        .into_iter()
+        .map(http_route::convert_host_match)
+        .collect();
+
+    let rules = rules
+        .into_iter()
+        .map(
+            |InboundHttpRouteRule { matches, filters }| proto::http_route::Rule {
+                matches: matches.into_iter().map(http_route::convert_match).collect(),
+                filters: filters.into_iter().map(convert_filter).collect(),
+            },
+        )
+        .collect();
+
+    let authorizations = authorizations
+        .iter()
+        .map(|(n, c)| to_authz(n, c, cluster_networks))
+        .collect();
+
+    proto::HttpRoute {
+        metadata: Some(metadata),
+        hosts,
+        rules,
+        authorizations,
+    }
+}
+
+fn convert_filter(filter: InboundFilter) -> proto::http_route::Filter {
+    use proto::http_route::filter::Kind;
+
+    proto::http_route::Filter {
+        kind: Some(match filter {
+            InboundFilter::FailureInjector(f) => {
+                Kind::FailureInjector(http_route::convert_failure_injector_filter(f))
+            }
+            InboundFilter::RequestHeaderModifier(f) => {
+                Kind::RequestHeaderModifier(http_route::convert_header_modifier_filter(f))
+            }
+            InboundFilter::RequestRedirect(f) => {
+                Kind::Redirect(http_route::convert_redirect_filter(f))
+            }
+        }),
     }
 }

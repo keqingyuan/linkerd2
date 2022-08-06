@@ -52,9 +52,11 @@ func testUninjectAndInject(t *testing.T, tc testCase) {
 	}
 
 	if exitCode := uninjectAndInject([]io.Reader{read}, report, output, transformer); exitCode != 0 {
-		t.Errorf("Unexpected error injecting YAML: %v\n", report)
+		t.Errorf("Unexpected error injecting YAML: %v", report)
 	}
-	testDataDiffer.DiffTestdata(t, tc.goldenFileName, output.String())
+	if err := testDataDiffer.DiffTestYAML(tc.goldenFileName, output.String()); err != nil {
+		t.Error(err)
+	}
 
 	reportFileName := mkFilename(tc.reportFileName, verbose)
 	testDataDiffer.DiffTestdata(t, reportFileName, report.String())
@@ -499,7 +501,9 @@ func testInjectFilePath(t *testing.T, tc injectFilePath) {
 	if exitCode := runInjectCmd(in, errBuf, actual, transformer); exitCode != 0 {
 		t.Fatal("Unexpected error. Exit code from runInjectCmd: ", exitCode)
 	}
-	testDataDiffer.DiffTestdata(t, tc.expectedFile, actual.String())
+	if err := testDataDiffer.DiffTestYAML(tc.expectedFile, actual.String()); err != nil {
+		t.Error(err)
+	}
 
 	stdErrFile := mkFilename(tc.stdErrFile, verbose)
 	testDataDiffer.DiffTestdata(t, stdErrFile, errBuf.String())
@@ -526,7 +530,9 @@ func testReadFromFolder(t *testing.T, resourceFolder string, expectedFolder stri
 	}
 
 	expectedFile := filepath.Join(expectedFolder, "injected_nginx_redis.yaml")
-	testDataDiffer.DiffTestdata(t, expectedFile, actual.String())
+	if err := testDataDiffer.DiffTestYAML(expectedFile, actual.String()); err != nil {
+		t.Error(err)
+	}
 
 	stdErrFileName := mkFilename(filepath.Join(expectedFolder, "injected_nginx_redis.stderr"), verbose)
 	testDataDiffer.DiffTestdata(t, stdErrFileName, errBuf.String())
@@ -620,7 +626,7 @@ func TestWalk(t *testing.T) {
 	}()
 
 	var (
-		data  = []byte(testutil.ReadTestdata(t, "inject_gettest_deployment.bad.input.yml"))
+		data  = []byte(testutil.ReadTestdata("inject_gettest_deployment.bad.input.yml"))
 		file1 = filepath.Join(tmpFolderRoot, "root.txt")
 		file2 = filepath.Join(tmpFolderData, "data.txt")
 	)
@@ -672,6 +678,7 @@ func TestProxyConfigurationAnnotations(t *testing.T) {
 	values.Proxy.WaitBeforeExitSeconds = 10
 	values.Proxy.Await = false
 	values.Proxy.AccessLog = "apache"
+	values.Proxy.ShutdownGracePeriod = "60s"
 
 	expectedOverrides := map[string]string{
 		k8s.ProxyIgnoreInboundPortsAnnotation:  "8500-8505",
@@ -692,6 +699,7 @@ func TestProxyConfigurationAnnotations(t *testing.T) {
 		k8s.ProxyWaitBeforeExitSecondsAnnotation:  "10",
 		k8s.ProxyAwait:                            "disabled",
 		k8s.ProxyAccessLogAnnotation:              "apache",
+		k8s.ProxyShutdownGracePeriodAnnotation:    "60s",
 	}
 
 	overrides := getOverrideAnnotations(values, baseValues)

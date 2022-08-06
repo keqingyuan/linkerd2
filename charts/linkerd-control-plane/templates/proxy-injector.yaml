@@ -23,10 +23,9 @@ spec:
   selector:
     matchLabels:
       linkerd.io/control-plane-component: proxy-injector
-  {{- if .Values.enablePodAntiAffinity }}
+  {{- if .Values.deploymentStrategy }}
   strategy:
-    rollingUpdate:
-      maxUnavailable: 1
+    {{- with .Values.deploymentStrategy }}{{ toYaml . | trim | nindent 4 }}{{- end }}
   {{- end }}
   template:
     metadata:
@@ -46,20 +45,21 @@ spec:
         {{- include "partials.proxy.labels" $tree.Values.proxy | nindent 8}}
         {{- with .Values.podLabels }}{{ toYaml . | trim | nindent 8 }}{{- end }}
     spec:
+      {{- with .Values.runtimeClassName }}
+      runtimeClassName: {{ . | quote }}
+      {{- end }}
       {{- if .Values.tolerations -}}
       {{- include "linkerd.tolerations" . | nindent 6 }}
       {{- end -}}
       {{- include "linkerd.node-selector" . | nindent 6 }}
-      {{- if .Values.enablePodAntiAffinity -}}
-      {{- $local := dict "component" "proxy-injector" "label" -}}
-      {{- include "linkerd.pod-affinity" $local | nindent 6 -}}
-      {{- end }}
+      {{- $_ := set $tree "component" "proxy-injector" -}}
+      {{- include "linkerd.affinity" $tree | nindent 6 }}
       containers:
       {{- if not (empty .Values.proxyInjectorProxyResources) }}
       {{- $r := merge .Values.proxyInjectorProxyResources .Values.proxy.resources }}
       {{- $_ := set $tree.Values.proxy "resources" $r }}
       {{- end }}
-      {{- $_ := set $tree.Values.proxy "await" true }}
+      {{- $_ := set $tree.Values.proxy "await" $tree.Values.proxy.await }}
       {{- $_ := set $tree.Values.proxy "loadTrustBundleFromConfigMap" true }}
       {{- $_ := set $tree.Values.proxy "podInboundPorts" "8443,9995" }}
       {{- /*
@@ -151,7 +151,7 @@ spec:
   - name: proxy-injector
     port: 443
     targetPort: proxy-injector
-{{- if .Values.enablePodAntiAffinity }}
+{{- if .Values.enablePodDisruptionBudget }}
 ---
 kind: PodDisruptionBudget
 apiVersion: policy/v1beta1

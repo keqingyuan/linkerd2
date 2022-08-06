@@ -1,714 +1,4 @@
 ---
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: servers.policy.linkerd.io
-  annotations:
-    linkerd.io/created-by: CliVersion
-  labels:
-    helm.sh/chart: linkerd-control-plane-1.1.10-edge
-    linkerd.io/control-plane-ns: linkerd
-spec:
-  group: policy.linkerd.io
-  names:
-    kind: Server
-    plural: servers
-    singular: server
-    shortNames: [srv]
-  scope: Namespaced
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: false
-      deprecated: true
-      deprecationWarning: "policy.linkerd.io/v1alpha1 Server is deprecated; use policy.linkerd.io/v1beta1 Server"
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: [spec]
-          properties:
-            spec:
-              type: object
-              required:
-                - podSelector
-                - port
-              properties:
-                podSelector:
-                  type: object
-                  description: >-
-                    Selects pods in the same namespace.
-                  oneOf:
-                    - required: [matchExpressions]
-                    - required: [matchLabels]
-                  properties:
-                    matchLabels:
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    matchExpressions:
-                      type: array
-                      items:
-                        type: object
-                        required: [key, operator]
-                        properties:
-                          key:
-                            type: string
-                          operator:
-                            type: string
-                            enum: [In, NotIn, Exists, DoesNotExist]
-                          values:
-                            type: array
-                            items:
-                              type: string
-                port:
-                  description: >-
-                    A port name or number. Must exist in a pod spec.
-                  x-kubernetes-int-or-string: true
-                proxyProtocol:
-                  description: >-
-                    Configures protocol discovery for inbound connections.
-
-                    Supersedes the `config.linkerd.io/opaque-ports` annotation.
-                  type: string
-                  default: unknown
-                  enum:
-                    - unknown
-                    - HTTP/1
-                    - HTTP/2
-                    - gRPC
-                    - opaque
-                    - TLS
-    - name: v1beta1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: [spec]
-          properties:
-            spec:
-              type: object
-              required:
-                - podSelector
-                - port
-              properties:
-                podSelector:
-                  type: object
-                  description: >-
-                    Selects pods in the same namespace.
-
-                    The result of matchLabels and matchExpressions are ANDed.
-                    Selects all if empty.
-                  properties:
-                    matchLabels:
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    matchExpressions:
-                      type: array
-                      items:
-                        type: object
-                        required: [key, operator]
-                        properties:
-                          key:
-                            type: string
-                          operator:
-                            type: string
-                            enum: [In, NotIn, Exists, DoesNotExist]
-                          values:
-                            type: array
-                            items:
-                              type: string
-                port:
-                  description: >-
-                    A port name or number. Must exist in a pod spec.
-                  x-kubernetes-int-or-string: true
-                proxyProtocol:
-                  description: >-
-                    Configures protocol discovery for inbound connections.
-
-                    Supersedes the `config.linkerd.io/opaque-ports` annotation.
-                  type: string
-                  default: unknown
-                  enum:
-                    - unknown
-                    - HTTP/1
-                    - HTTP/2
-                    - gRPC
-                    - opaque
-                    - TLS
-      additionalPrinterColumns:
-      - name: Port
-        type: string
-        description: The port the server is listening on
-        jsonPath: .spec.port
-      - name: Protocol
-        type: string
-        description: The protocol of the server
-        jsonPath: .spec.proxyProtocol
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: serverauthorizations.policy.linkerd.io
-  annotations:
-    linkerd.io/created-by: CliVersion
-  labels:
-    helm.sh/chart: linkerd-control-plane-1.1.10-edge
-    linkerd.io/control-plane-ns: linkerd
-spec:
-  group: policy.linkerd.io
-  scope: Namespaced
-  names:
-    kind: ServerAuthorization
-    plural: serverauthorizations
-    singular: serverauthorization
-    shortNames: [saz]
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: false
-      deprecated: true
-      deprecationWarning: "policy.linkerd.io/v1alpha1 ServerAuthorization is deprecated; use policy.linkerd.io/v1beta1 ServerAuthorization"
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: [spec]
-          properties:
-            spec:
-              description: >-
-                Authorizes clients to communicate with Linkerd-proxied servers.
-              type: object
-              required: [server, client]
-              properties:
-                server:
-                  description: >-
-                    Identifies servers in the same namespace for which this
-                    authorization applies.
-
-                    Only one of `name` or `selector` may be specified.
-                  type: object
-                  oneOf:
-                    - required: [name]
-                    - required: [selector]
-                  properties:
-                    name:
-                      description: References a `Server` instance by name
-                      type: string
-                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                    selector:
-                      description: >-
-                        A label query over servers on which this authorization applies.
-                      type: object
-                      oneOf:
-                        - required: [matchLabels]
-                        - required: [matchExpressions]
-                      properties:
-                        matchLabels:
-                          type: object
-                          x-kubernetes-preserve-unknown-fields: true
-                        matchExpressions:
-                          type: array
-                          items:
-                            type: object
-                            required: [key, operator]
-                            properties:
-                              key:
-                                type: string
-                              operator:
-                                type: string
-                                enum: [In, NotIn, Exists, DoesNotExist]
-                              values:
-                                type: array
-                                items:
-                                  type: string
-                client:
-                  description:  Describes clients authorized to access a server.
-                  type: object
-                  oneOf:
-                    - required: [meshTLS]
-                    - required: [unauthenticated]
-                  properties:
-                    networks:
-                      description: >-
-                        Limits the client IP addresses to which this
-                        authorization applies. If unset, the server chooses a
-                        default (typically, all IPs or the cluster's pod
-                        network).
-                      type: array
-                      items:
-                        type: object
-                        required: [cidr]
-                        properties:
-                          cidr:
-                            type: string
-                          except:
-                            type: array
-                            items:
-                              type: string
-                    unauthenticated:
-                      description: >-
-                        Authorizes unauthenticated clients to access a server.
-                      type: boolean
-                    meshTLS:
-                      type: object
-                      oneOf:
-                        - required: [unauthenticatedTLS]
-                        - required: [identities]
-                        - required: [serviceAccounts]
-                      properties:
-                        unauthenticatedTLS:
-                          type: boolean
-                          description: >-
-                            Indicates that no client identity is required for
-                            communication.
-
-                            This is mostly important for the identity
-                            controller, which must terminate TLS connections
-                            from clients that do not yet have a certificate.
-                        identities:
-                          description: >-
-                            Authorizes clients with the provided proxy identity
-                            strings (as provided via MTLS)
-
-                            The `*` prefix can be used to match all identities in
-                            a domain. An identity string of `*` indicates that
-                            all authentication clients are authorized.
-                          type: array
-                          items:
-                            type: string
-                            pattern: '^(\*|[a-z0-9]([-a-z0-9]*[a-z0-9])?)(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
-                        serviceAccounts:
-                          description: >-
-                            Authorizes clients with the provided proxy identity
-                            service accounts (as provided via MTLS)
-                          type: array
-                          items:
-                            type: object
-                            required: [name]
-                            properties:
-                              name:
-                                description: The ServiceAccount's name.
-                                type: string
-                                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                              namespace:
-                                description: >-
-                                  The ServiceAccount's namespace. If unset, the
-                                  authorization's namespace is used.
-                                type: string
-                                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-    - name: v1beta1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: [spec]
-          properties:
-            spec:
-              description: >-
-                Authorizes clients to communicate with Linkerd-proxied servers.
-              type: object
-              required: [server, client]
-              properties:
-                server:
-                  description: >-
-                    Identifies servers in the same namespace for which this
-                    authorization applies.
-
-                    Only one of `name` or `selector` may be specified.
-                  type: object
-                  oneOf:
-                    - required: [name]
-                    - required: [selector]
-                  properties:
-                    name:
-                      description: References a `Server` instance by name
-                      type: string
-                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                    selector:
-                      description: >-
-                        A label query over servers on which this authorization applies.
-                      type: object
-                      oneOf:
-                        - required: [matchLabels]
-                        - required: [matchExpressions]
-                      properties:
-                        matchLabels:
-                          type: object
-                          x-kubernetes-preserve-unknown-fields: true
-                        matchExpressions:
-                          type: array
-                          items:
-                            type: object
-                            required: [key, operator]
-                            properties:
-                              key:
-                                type: string
-                              operator:
-                                type: string
-                                enum: [In, NotIn, Exists, DoesNotExist]
-                              values:
-                                type: array
-                                items:
-                                  type: string
-                client:
-                  description:  Describes clients authorized to access a server.
-                  type: object
-                  oneOf:
-                    - required: [meshTLS]
-                    - required: [unauthenticated]
-                  properties:
-                    networks:
-                      description: >-
-                        Limits the client IP addresses to which this
-                        authorization applies. If unset, the server chooses a
-                        default (typically, all IPs or the cluster's pod
-                        network).
-                      type: array
-                      items:
-                        type: object
-                        required: [cidr]
-                        properties:
-                          cidr:
-                            type: string
-                          except:
-                            type: array
-                            items:
-                              type: string
-                    unauthenticated:
-                      description: >-
-                        Authorizes unauthenticated clients to access a server.
-                      type: boolean
-                    meshTLS:
-                      type: object
-                      oneOf:
-                        - required: [unauthenticatedTLS]
-                        - required: [identities]
-                        - required: [serviceAccounts]
-                      properties:
-                        unauthenticatedTLS:
-                          type: boolean
-                          description: >-
-                            Indicates that no client identity is required for
-                            communication.
-
-                            This is mostly important for the identity
-                            controller, which must terminate TLS connections
-                            from clients that do not yet have a certificate.
-                        identities:
-                          description: >-
-                            Authorizes clients with the provided proxy identity
-                            strings (as provided via MTLS)
-
-                            The `*` prefix can be used to match all identities in
-                            a domain. An identity string of `*` indicates that
-                            all authentication clients are authorized.
-                          type: array
-                          items:
-                            type: string
-                            pattern: '^(\*|[a-z0-9]([-a-z0-9]*[a-z0-9])?)(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
-                        serviceAccounts:
-                          description: >-
-                            Authorizes clients with the provided proxy identity
-                            service accounts (as provided via MTLS)
-                          type: array
-                          items:
-                            type: object
-                            required: [name]
-                            properties:
-                              name:
-                                description: The ServiceAccount's name.
-                                type: string
-                                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                              namespace:
-                                description: >-
-                                  The ServiceAccount's namespace. If unset, the
-                                  authorization's namespace is used.
-                                type: string
-                                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-      additionalPrinterColumns:
-      - name: Server
-        type: string
-        description: The server that this grants access to
-        jsonPath: .spec.server.name
----
-###
-### Service Profile CRD
-###
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: serviceprofiles.linkerd.io
-  annotations:
-    linkerd.io/created-by: CliVersion
-  labels:
-    helm.sh/chart: linkerd-control-plane-1.1.10-edge
-    linkerd.io/control-plane-ns: linkerd
-spec:
-  group: linkerd.io
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: false
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            description: Spec is the custom resource spec
-            required:
-            - routes
-            properties:
-              dstOverrides:
-                type: array
-                required:
-                - authority
-                - weight
-                items:
-                  type: object
-                  description: WeightedDst is a weighted alternate destination.
-                  properties:
-                    authority:
-                      type: string
-                    weight:
-                      x-kubernetes-int-or-string: true
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-              opaquePorts:
-                type: array
-                items:
-                  type: string
-              retryBudget:
-                type: object
-                required:
-                - minRetriesPerSecond
-                - retryRatio
-                - ttl
-                description: RetryBudget describes the maximum number of retries that should be issued to this service.
-                properties:
-                  minRetriesPerSecond:
-                    format: int32
-                    type: integer
-                  retryRatio:
-                    type: number
-                    format: float
-                  ttl:
-                    type: string
-              routes:
-                type: array
-                items:
-                  type: object
-                  description: RouteSpec specifies a Route resource.
-                  required:
-                  - condition
-                  - name
-                  properties:
-                    condition:
-                      type: object
-                      description: RequestMatch describes the conditions under which to match a Route.
-                      properties:
-                        pathRegex:
-                          type: string
-                        method:
-                          type: string
-                        all:
-                          type: array
-                          items:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                        any:
-                          type: array
-                          items:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                        not:
-                          type: array
-                          items:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                    isRetryable:
-                      type: boolean
-                    name:
-                      type: string
-                    timeout:
-                      type: string
-                    responseClasses:
-                      type: array
-                      items:
-                        type: object
-                        required:
-                        - condition
-                        description: ResponseClass describes how to classify a response (e.g. success or failures).
-                        properties:
-                          condition:
-                            type: object
-                            description: ResponseMatch describes the conditions under
-                              which to classify a response.
-                            properties:
-                              all:
-                                type: array
-                                items:
-                                  type: object
-                                  x-kubernetes-preserve-unknown-fields: true
-                              any:
-                                type: array
-                                items:
-                                  type: object
-                                  x-kubernetes-preserve-unknown-fields: true
-                              not:
-                                type: array
-                                items:
-                                  type: object
-                                  x-kubernetes-preserve-unknown-fields: true
-                              status:
-                                type: object
-                                description: Range describes a range of integers (e.g. status codes).
-                                properties:
-                                  max:
-                                    format: int32
-                                    type: integer
-                                  min:
-                                    format: int32
-                                    type: integer
-                          isFailure:
-                            type: boolean
-  - name: v1alpha2
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            description: Spec is the custom resource spec
-            properties:
-              dstOverrides:
-                type: array
-                required:
-                - authority
-                - weight
-                items:
-                  type: object
-                  description: WeightedDst is a weighted alternate destination.
-                  properties:
-                    authority:
-                      type: string
-                    weight:
-                      x-kubernetes-int-or-string: true
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-              opaquePorts:
-                type: array
-                items:
-                  type: string
-              retryBudget:
-                type: object
-                required:
-                - minRetriesPerSecond
-                - retryRatio
-                - ttl
-                description: RetryBudget describes the maximum number of retries that should be issued to this service.
-                properties:
-                  minRetriesPerSecond:
-                    format: int32
-                    type: integer
-                  retryRatio:
-                    type: number
-                    format: float
-                  ttl:
-                    type: string
-              routes:
-                type: array
-                items:
-                  type: object
-                  description: RouteSpec specifies a Route resource.
-                  required:
-                  - condition
-                  - name
-                  properties:
-                    condition:
-                      type: object
-                      description: RequestMatch describes the conditions under which to match a Route.
-                      properties:
-                        pathRegex:
-                          type: string
-                        method:
-                          type: string
-                        all:
-                          type: array
-                          items:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                        any:
-                          type: array
-                          items:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                        not:
-                          type: array
-                          items:
-                            type: object
-                            x-kubernetes-preserve-unknown-fields: true
-                    isRetryable:
-                      type: boolean
-                    name:
-                      type: string
-                    timeout:
-                      type: string
-                    responseClasses:
-                      type: array
-                      items:
-                        type: object
-                        required:
-                        - condition
-                        description: ResponseClass describes how to classify a response (e.g. success or failures).
-                        properties:
-                          condition:
-                            type: object
-                            description: ResponseMatch describes the conditions under
-                              which to classify a response.
-                            properties:
-                              all:
-                                type: array
-                                items:
-                                  type: object
-                                  x-kubernetes-preserve-unknown-fields: true
-                              any:
-                                type: array
-                                items:
-                                  type: object
-                                  x-kubernetes-preserve-unknown-fields: true
-                              not:
-                                type: array
-                                items:
-                                  type: object
-                                  x-kubernetes-preserve-unknown-fields: true
-                              status:
-                                type: object
-                                description: Range describes a range of integers (e.g. status codes).
-                                properties:
-                                  max:
-                                    format: int32
-                                    type: integer
-                                  min:
-                                    format: int32
-                                    type: integer
-                          isFailure:
-                            type: boolean
-  scope: Namespaced
-  preserveUnknownFields: false
-  names:
-    plural: serviceprofiles
-    singular: serviceprofile
-    kind: ServiceProfile
-    shortNames:
-    - sp
----
 ###
 ### Linkerd Namespace
 ###
@@ -876,6 +166,10 @@ webhooks:
     apiGroups: ["policy.linkerd.io"]
     apiVersions: ["v1alpha1", "v1beta1"]
     resources:
+    - authorizationpolicies
+    - httproutes
+    - networkauthentications
+    - meshtlsauthentications
     - serverauthorizations
     - servers
   sideEffects: None
@@ -900,6 +194,10 @@ rules:
   - apiGroups:
       - policy.linkerd.io
     resources:
+      - authorizationpolicies
+      - httproutes
+      - meshtlsauthentications
+      - networkauthentications
       - servers
       - serverauthorizations
     verbs:
@@ -1119,6 +417,7 @@ data:
     enableEndpointSlices: false
     enableH2Upgrade: true
     enablePodAntiAffinity: false
+    enablePodDisruptionBudget: false
     heartbeatResources: null
     heartbeatSchedule: 1 2 3 4 5
     highAvailability: false
@@ -1161,7 +460,8 @@ data:
     identityTrustDomain: cluster.local
     imagePullPolicy: ImagePullPolicy
     imagePullSecrets: null
-    linkerdVersion: ""
+    linkerdVersion: LinkerdVersion
+    nodeAffinity: null
     nodeSelector:
       kubernetes.io/os: linux
     podAnnotations: {}
@@ -1173,6 +473,9 @@ data:
         pullPolicy: ImagePullPolicy
         version: PolicyControllerVersion
       logLevel: log-level
+      probeNetworks:
+      - 1.0.0.0/0
+      - 2.0.0.0/0
       resources:
         cpu:
           limit: cpu-limit
@@ -1189,7 +492,6 @@ data:
       externalSecret: true
       injectCaFrom: ""
       injectCaFromSecret: ""
-      keyPEM: ""
       namespaceSelector:
         matchExpressions:
         - key: config.linkerd.io/admission-webhooks
@@ -1212,7 +514,7 @@ data:
     prometheusUrl: ""
     proxy:
       accessLog: ""
-      await: false
+      await: true
       capabilities: null
       defaultInboundPolicy: ""
       enableExternalProfiles: false
@@ -1245,6 +547,7 @@ data:
           limit: memory-limit
           request: memory-request
       saMountPath: null
+      shutdownGracePeriod: ""
       uid: 2102
       waitBeforeExitSeconds: 0
     proxyContainerName: ProxyContainerName
@@ -1257,6 +560,7 @@ data:
         name: ProxyInitImageName
         pullPolicy: ImagePullPolicy
         version: ProxyInitVersion
+      iptablesMode: legacy
       logFormat: ""
       logLevel: ""
       resources:
@@ -1387,7 +691,7 @@ metadata:
   labels:
     app.kubernetes.io/name: identity
     app.kubernetes.io/part-of: Linkerd
-    app.kubernetes.io/version: 
+    app.kubernetes.io/version: LinkerdVersion
     linkerd.io/control-plane-component: identity
     linkerd.io/control-plane-ns: linkerd
   name: linkerd-identity
@@ -1404,6 +708,7 @@ spec:
       annotations:
         linkerd.io/created-by: CliVersion
         linkerd.io/proxy-version: ProxyVersion
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
         config.linkerd.io/default-inbound-policy: "all-unauthenticated"
       labels:
         linkerd.io/control-plane-component: identity
@@ -1413,6 +718,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
+      
       containers:
       - args:
         - identity
@@ -1427,7 +733,7 @@ spec:
         env:
         - name: LINKERD_DISABLED
           value: "linkerd-await cannot block the identity controller"
-        image: ControllerImage:
+        image: ControllerImage:LinkerdVersion
         imagePullPolicy: ImagePullPolicy
         livenessProbe:
           httpGet:
@@ -1730,7 +1036,7 @@ metadata:
   labels:
     app.kubernetes.io/name: destination
     app.kubernetes.io/part-of: Linkerd
-    app.kubernetes.io/version: 
+    app.kubernetes.io/version: LinkerdVersion
     linkerd.io/control-plane-component: destination
     linkerd.io/control-plane-ns: linkerd
   name: linkerd-destination
@@ -1747,6 +1053,7 @@ spec:
       annotations:
         linkerd.io/created-by: CliVersion
         linkerd.io/proxy-version: ProxyVersion
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
         config.linkerd.io/default-inbound-policy: "all-unauthenticated"
       labels:
         linkerd.io/control-plane-component: destination
@@ -1756,6 +1063,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
+      
       containers:
       - env:
         - name: _pod_name
@@ -1887,7 +1195,7 @@ spec:
         - -identity-trust-domain=cluster.local
         - -default-opaque-ports=25,443,587,3306,5432,11211
         - -enable-pprof=false
-        image: ControllerImage:
+        image: ControllerImage:LinkerdVersion
         imagePullPolicy: ImagePullPolicy
         livenessProbe:
           httpGet:
@@ -1913,7 +1221,7 @@ spec:
         - -log-level=ControllerLogLevel
         - -log-format=ControllerLogFormat
         - -enable-pprof=false
-        image: ControllerImage:
+        image: ControllerImage:LinkerdVersion
         imagePullPolicy: ImagePullPolicy
         livenessProbe:
           httpGet:
@@ -1950,6 +1258,7 @@ spec:
         - --default-policy=default-allow-policy
         - --log-level=log-level
         - --log-format=ControllerLogFormat
+        - --probe-networks=1.0.0.0/0,2.0.0.0/0
         image: PolicyControllerImageName:PolicyControllerVersion
         imagePullPolicy: ImagePullPolicy
         livenessProbe:
@@ -2044,7 +1353,7 @@ spec:
 ###
 ### Heartbeat
 ###
-apiVersion: batch/v1beta1
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: linkerd-heartbeat
@@ -2052,7 +1361,7 @@ metadata:
   labels:
     app.kubernetes.io/name: heartbeat
     app.kubernetes.io/part-of: Linkerd
-    app.kubernetes.io/version: 
+    app.kubernetes.io/version: LinkerdVersion
     linkerd.io/control-plane-component: heartbeat
     linkerd.io/control-plane-ns: linkerd
   annotations:
@@ -2078,7 +1387,7 @@ spec:
           restartPolicy: Never
           containers:
           - name: heartbeat
-            image: ControllerImage:
+            image: ControllerImage:LinkerdVersion
             imagePullPolicy: ImagePullPolicy
             env:
             - name: LINKERD_DISABLED
@@ -2104,7 +1413,7 @@ metadata:
   labels:
     app.kubernetes.io/name: proxy-injector
     app.kubernetes.io/part-of: Linkerd
-    app.kubernetes.io/version: 
+    app.kubernetes.io/version: LinkerdVersion
     linkerd.io/control-plane-component: proxy-injector
     linkerd.io/control-plane-ns: linkerd
   name: linkerd-proxy-injector
@@ -2119,6 +1428,7 @@ spec:
       annotations:
         linkerd.io/created-by: CliVersion
         linkerd.io/proxy-version: ProxyVersion
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
         config.linkerd.io/opaque-ports: "8443"
         config.linkerd.io/default-inbound-policy: "all-unauthenticated"
       labels:
@@ -2129,6 +1439,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
+      
       containers:
       - env:
         - name: _pod_name
@@ -2254,7 +1565,7 @@ spec:
         - -log-format=ControllerLogFormat
         - -linkerd-namespace=linkerd
         - -enable-pprof=false
-        image: ControllerImage:
+        image: ControllerImage:LinkerdVersion
         imagePullPolicy: ImagePullPolicy
         livenessProbe:
           httpGet:
@@ -2365,7 +1676,7 @@ spec:
 ---
 apiVersion: v1
 data:
-  linkerd-config-overrides: Y2xpVmVyc2lvbjogQ2xpVmVyc2lvbgpjbHVzdGVyTmV0d29ya3M6IENsdXN0ZXJOZXR3b3Jrcwpjb250cm9sUGxhbmVUcmFjaW5nTmFtZXNwYWNlOiAiIgpjb250cm9sbGVySW1hZ2U6IENvbnRyb2xsZXJJbWFnZQpjb250cm9sbGVyTG9nRm9ybWF0OiBDb250cm9sbGVyTG9nRm9ybWF0CmNvbnRyb2xsZXJMb2dMZXZlbDogQ29udHJvbGxlckxvZ0xldmVsCmRlYnVnQ29udGFpbmVyOgogIGltYWdlOgogICAgbmFtZTogRGVidWdJbWFnZU5hbWUKICAgIHB1bGxQb2xpY3k6IERlYnVnSW1hZ2VQdWxsUG9saWN5CiAgICB2ZXJzaW9uOiBEZWJ1Z1ZlcnNpb24KZW5hYmxlRW5kcG9pbnRTbGljZXM6IGZhbHNlCmhlYXJ0YmVhdFNjaGVkdWxlOiAxIDIgMyA0IDUKaWRlbnRpdHk6CiAgaXNzdWVyOgogICAgdGxzOgogICAgICBjcnRQRU06IHwKICAgICAgICAtLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS0KICAgICAgICBNSUlCd0RDQ0FXZWdBd0lCQWdJUkFKUklnWjhSdE84RXdnMVhlcGY4VDQ0d0NnWUlLb1pJemowRUF3SXdLVEVuCiAgICAgICAgTUNVR0ExVUVBeE1lYVdSbGJuUnBkSGt1YkdsdWEyVnlaQzVqYkhWemRHVnlMbXh2WTJGc01CNFhEVEl3TURneQogICAgICAgIE9EQTNNVE0wTjFvWERUTXdNRGd5TmpBM01UTTBOMW93S1RFbk1DVUdBMVVFQXhNZWFXUmxiblJwZEhrdWJHbHUKICAgICAgICBhMlZ5WkM1amJIVnpkR1Z5TG14dlkyRnNNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUUxL0ZwCiAgICAgICAgZmNSbkRjZWRMNkFqVWFYWVB2NERJTUJhSnVmT0k1Tld0eStYU1g3SmpYZ1p0TTcyZFF2UmFZYW51eEQzNkR0MQogICAgICAgIDIvSnh5aVNneEtXUmRvYXkrYU53TUc0d0RnWURWUjBQQVFIL0JBUURBZ0VHTUJJR0ExVWRFd0VCL3dRSU1BWUIKICAgICAgICBBZjhDQVFBd0hRWURWUjBPQkJZRUZJMVducnFNWUthSEhPbyt6cHlpaURxMnBPMEtNQ2tHQTFVZEVRUWlNQ0NDCiAgICAgICAgSG1sa1pXNTBhWFI1TG14cGJtdGxjbVF1WTJ4MWMzUmxjaTVzYjJOaGJEQUtCZ2dxaGtqT1BRUURBZ05IQURCRQogICAgICAgIEFpQXR1b0k1WHVDdHJHVlJ6U21SVGwycmEyOGFWOU15VFU3ZDVxblRBRkhLU2dJZ1JLQ3ZsdU9TZ0E1TzIxcDUKICAgICAgICA1MXRkcm1rSEVaUnIwcWxMU0pkSFlnRWZNems9CiAgICAgICAgLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQogICAgICBrZXlQRU06IHwKICAgICAgICAtLS0tLUJFR0lOIEVDIFBSSVZBVEUgS0VZLS0tLS0KICAgICAgICBNSGNDQVFFRUlBQWU4bmZielp1OWMvT0IyKzh4Sk0wRno3TlV3VFFhenVsa0ZOczRUSTUrb0FvR0NDcUdTTTQ5CiAgICAgICAgQXdFSG9VUURRZ0FFMS9GcGZjUm5EY2VkTDZBalVhWFlQdjRESU1CYUp1Zk9JNU5XdHkrWFNYN0pqWGdadE03MgogICAgICAgIGRRdlJhWWFudXhEMzZEdDEyL0p4eWlTZ3hLV1Jkb2F5K1E9PQogICAgICAgIC0tLS0tRU5EIEVDIFBSSVZBVEUgS0VZLS0tLS0KaWRlbnRpdHlUcnVzdEFuY2hvcnNQRU06IHwKICAtLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS0KICBNSUlCd1RDQ0FXYWdBd0lCQWdJUWVEWnA1bERhSXlnUTVVZk1LWnJGQVRBS0JnZ3Foa2pPUFFRREFqQXBNU2N3CiAgSlFZRFZRUURFeDVwWkdWdWRHbDBlUzVzYVc1clpYSmtMbU5zZFhOMFpYSXViRzlqWVd3d0hoY05NakF3T0RJNAogIE1EY3hNalEzV2hjTk16QXdPREkyTURjeE1qUTNXakFwTVNjd0pRWURWUVFERXg1cFpHVnVkR2wwZVM1c2FXNXIKICBaWEprTG1Oc2RYTjBaWEl1Ykc5allXd3dXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBUnFjNzBaCiAgbDF2Z3c3OXJqQjV1U0lUSUNVQTZHeWZ2U0ZmY3VJaXM3Qi9YRlNra3dBSFU1Uy9zMUFBUCtSMFRYN0hCV1VDNAogIHVhRzRXV3Npd0pLTm43bWdvM0F3YmpBT0JnTlZIUThCQWY4RUJBTUNBUVl3RWdZRFZSMFRBUUgvQkFnd0JnRUIKICAvd0lCQVRBZEJnTlZIUTRFRmdRVTVZdGpWVlBmZDdJN05MSHNuMkMyNkVCeUdWMHdLUVlEVlIwUkJDSXdJSUllCiAgYVdSbGJuUnBkSGt1YkdsdWEyVnlaQzVqYkhWemRHVnlMbXh2WTJGc01Bb0dDQ3FHU000OUJBTUNBMGtBTUVZQwogIElRQ043bEJGTEREdmp4NlYwK1hranBLRVJSc0pZZjVhZE12bmxvRmw0OGlsSmdJaEFOdHhobmRjcitRSlB1QzgKICB2Z1VDMGQyLzlGTXVlSVZNYis0NldUQ09qc3FyCiAgLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQppbWFnZVB1bGxQb2xpY3k6IEltYWdlUHVsbFBvbGljeQppbWFnZVB1bGxTZWNyZXRzOiBudWxsCmxpbmtlcmRWZXJzaW9uOiAiIgpwb2xpY3lDb250cm9sbGVyOgogIGRlZmF1bHRBbGxvd1BvbGljeTogZGVmYXVsdC1hbGxvdy1wb2xpY3kKICBpbWFnZToKICAgIG5hbWU6IFBvbGljeUNvbnRyb2xsZXJJbWFnZU5hbWUKICAgIHB1bGxQb2xpY3k6IEltYWdlUHVsbFBvbGljeQogICAgdmVyc2lvbjogUG9saWN5Q29udHJvbGxlclZlcnNpb24KICBsb2dMZXZlbDogbG9nLWxldmVsCiAgcmVzb3VyY2VzOgogICAgY3B1OgogICAgICBsaW1pdDogY3B1LWxpbWl0CiAgICAgIHJlcXVlc3Q6IGNwdS1yZXF1ZXN0CiAgICBtZW1vcnk6CiAgICAgIGxpbWl0OiBtZW1vcnktbGltaXQKICAgICAgcmVxdWVzdDogbWVtb3J5LXJlcXVlc3QKcG9saWN5VmFsaWRhdG9yOgogIGNhQnVuZGxlOiBwb2xpY3kgdmFsaWRhdG9yIENBIGJ1bmRsZQogIGV4dGVybmFsU2VjcmV0OiB0cnVlCnByaW9yaXR5Q2xhc3NOYW1lOiBQcmlvcml0eUNsYXNzTmFtZQpwcm9maWxlVmFsaWRhdG9yOgogIGNhQnVuZGxlOiBwcm9maWxlIHZhbGlkYXRvciBDQSBidW5kbGUKICBleHRlcm5hbFNlY3JldDogdHJ1ZQpwcm94eToKICBhd2FpdDogZmFsc2UKICBpbWFnZToKICAgIG5hbWU6IFByb3h5SW1hZ2VOYW1lCiAgICBwdWxsUG9saWN5OiBJbWFnZVB1bGxQb2xpY3kKICAgIHZlcnNpb246IFByb3h5VmVyc2lvbgogIGluYm91bmRDb25uZWN0VGltZW91dDogIiIKICBvcGFxdWVQb3J0czogMjUsNDQzLDU4NywzMzA2LDU0MzIsMTEyMTEKICBvdXRib3VuZENvbm5lY3RUaW1lb3V0OiAiIgogIHJlc291cmNlczoKICAgIGNwdToKICAgICAgbGltaXQ6IGNwdS1saW1pdAogICAgICByZXF1ZXN0OiBjcHUtcmVxdWVzdAogICAgbWVtb3J5OgogICAgICBsaW1pdDogbWVtb3J5LWxpbWl0CiAgICAgIHJlcXVlc3Q6IG1lbW9yeS1yZXF1ZXN0CnByb3h5Q29udGFpbmVyTmFtZTogUHJveHlDb250YWluZXJOYW1lCnByb3h5SW5pdDoKICBpZ25vcmVJbmJvdW5kUG9ydHM6ICIiCiAgaWdub3JlT3V0Ym91bmRQb3J0czogIjQ0MyIKICBpbWFnZToKICAgIG5hbWU6IFByb3h5SW5pdEltYWdlTmFtZQogICAgcHVsbFBvbGljeTogSW1hZ2VQdWxsUG9saWN5CiAgICB2ZXJzaW9uOiBQcm94eUluaXRWZXJzaW9uCiAgcmVzb3VyY2VzOgogICAgY3B1OgogICAgICByZXF1ZXN0OiAxMG0KICAgIG1lbW9yeToKICAgICAgbGltaXQ6IDUwTWkKICAgICAgcmVxdWVzdDogMTBNaQpwcm94eUluamVjdG9yOgogIGNhQnVuZGxlOiBwcm94eSBpbmplY3RvciBDQSBidW5kbGUKICBleHRlcm5hbFNlY3JldDogdHJ1ZQp3ZWJob29rRmFpbHVyZVBvbGljeTogV2ViaG9va0ZhaWx1cmVQb2xpY3kK
+  linkerd-config-overrides: Y2xpVmVyc2lvbjogQ2xpVmVyc2lvbgpjbHVzdGVyTmV0d29ya3M6IENsdXN0ZXJOZXR3b3Jrcwpjb250cm9sUGxhbmVUcmFjaW5nTmFtZXNwYWNlOiAiIgpjb250cm9sbGVySW1hZ2U6IENvbnRyb2xsZXJJbWFnZQpjb250cm9sbGVyTG9nRm9ybWF0OiBDb250cm9sbGVyTG9nRm9ybWF0CmNvbnRyb2xsZXJMb2dMZXZlbDogQ29udHJvbGxlckxvZ0xldmVsCmRlYnVnQ29udGFpbmVyOgogIGltYWdlOgogICAgbmFtZTogRGVidWdJbWFnZU5hbWUKICAgIHB1bGxQb2xpY3k6IERlYnVnSW1hZ2VQdWxsUG9saWN5CiAgICB2ZXJzaW9uOiBEZWJ1Z1ZlcnNpb24KZW5hYmxlRW5kcG9pbnRTbGljZXM6IGZhbHNlCmhlYXJ0YmVhdFNjaGVkdWxlOiAxIDIgMyA0IDUKaWRlbnRpdHk6CiAgaXNzdWVyOgogICAgdGxzOgogICAgICBjcnRQRU06IHwKICAgICAgICAtLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS0KICAgICAgICBNSUlCd0RDQ0FXZWdBd0lCQWdJUkFKUklnWjhSdE84RXdnMVhlcGY4VDQ0d0NnWUlLb1pJemowRUF3SXdLVEVuCiAgICAgICAgTUNVR0ExVUVBeE1lYVdSbGJuUnBkSGt1YkdsdWEyVnlaQzVqYkhWemRHVnlMbXh2WTJGc01CNFhEVEl3TURneQogICAgICAgIE9EQTNNVE0wTjFvWERUTXdNRGd5TmpBM01UTTBOMW93S1RFbk1DVUdBMVVFQXhNZWFXUmxiblJwZEhrdWJHbHUKICAgICAgICBhMlZ5WkM1amJIVnpkR1Z5TG14dlkyRnNNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUUxL0ZwCiAgICAgICAgZmNSbkRjZWRMNkFqVWFYWVB2NERJTUJhSnVmT0k1Tld0eStYU1g3SmpYZ1p0TTcyZFF2UmFZYW51eEQzNkR0MQogICAgICAgIDIvSnh5aVNneEtXUmRvYXkrYU53TUc0d0RnWURWUjBQQVFIL0JBUURBZ0VHTUJJR0ExVWRFd0VCL3dRSU1BWUIKICAgICAgICBBZjhDQVFBd0hRWURWUjBPQkJZRUZJMVducnFNWUthSEhPbyt6cHlpaURxMnBPMEtNQ2tHQTFVZEVRUWlNQ0NDCiAgICAgICAgSG1sa1pXNTBhWFI1TG14cGJtdGxjbVF1WTJ4MWMzUmxjaTVzYjJOaGJEQUtCZ2dxaGtqT1BRUURBZ05IQURCRQogICAgICAgIEFpQXR1b0k1WHVDdHJHVlJ6U21SVGwycmEyOGFWOU15VFU3ZDVxblRBRkhLU2dJZ1JLQ3ZsdU9TZ0E1TzIxcDUKICAgICAgICA1MXRkcm1rSEVaUnIwcWxMU0pkSFlnRWZNems9CiAgICAgICAgLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQogICAgICBrZXlQRU06IHwKICAgICAgICAtLS0tLUJFR0lOIEVDIFBSSVZBVEUgS0VZLS0tLS0KICAgICAgICBNSGNDQVFFRUlBQWU4bmZielp1OWMvT0IyKzh4Sk0wRno3TlV3VFFhenVsa0ZOczRUSTUrb0FvR0NDcUdTTTQ5CiAgICAgICAgQXdFSG9VUURRZ0FFMS9GcGZjUm5EY2VkTDZBalVhWFlQdjRESU1CYUp1Zk9JNU5XdHkrWFNYN0pqWGdadE03MgogICAgICAgIGRRdlJhWWFudXhEMzZEdDEyL0p4eWlTZ3hLV1Jkb2F5K1E9PQogICAgICAgIC0tLS0tRU5EIEVDIFBSSVZBVEUgS0VZLS0tLS0KaWRlbnRpdHlUcnVzdEFuY2hvcnNQRU06IHwKICAtLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS0KICBNSUlCd1RDQ0FXYWdBd0lCQWdJUWVEWnA1bERhSXlnUTVVZk1LWnJGQVRBS0JnZ3Foa2pPUFFRREFqQXBNU2N3CiAgSlFZRFZRUURFeDVwWkdWdWRHbDBlUzVzYVc1clpYSmtMbU5zZFhOMFpYSXViRzlqWVd3d0hoY05NakF3T0RJNAogIE1EY3hNalEzV2hjTk16QXdPREkyTURjeE1qUTNXakFwTVNjd0pRWURWUVFERXg1cFpHVnVkR2wwZVM1c2FXNXIKICBaWEprTG1Oc2RYTjBaWEl1Ykc5allXd3dXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBUnFjNzBaCiAgbDF2Z3c3OXJqQjV1U0lUSUNVQTZHeWZ2U0ZmY3VJaXM3Qi9YRlNra3dBSFU1Uy9zMUFBUCtSMFRYN0hCV1VDNAogIHVhRzRXV3Npd0pLTm43bWdvM0F3YmpBT0JnTlZIUThCQWY4RUJBTUNBUVl3RWdZRFZSMFRBUUgvQkFnd0JnRUIKICAvd0lCQVRBZEJnTlZIUTRFRmdRVTVZdGpWVlBmZDdJN05MSHNuMkMyNkVCeUdWMHdLUVlEVlIwUkJDSXdJSUllCiAgYVdSbGJuUnBkSGt1YkdsdWEyVnlaQzVqYkhWemRHVnlMbXh2WTJGc01Bb0dDQ3FHU000OUJBTUNBMGtBTUVZQwogIElRQ043bEJGTEREdmp4NlYwK1hranBLRVJSc0pZZjVhZE12bmxvRmw0OGlsSmdJaEFOdHhobmRjcitRSlB1QzgKICB2Z1VDMGQyLzlGTXVlSVZNYis0NldUQ09qc3FyCiAgLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQppbWFnZVB1bGxQb2xpY3k6IEltYWdlUHVsbFBvbGljeQppbWFnZVB1bGxTZWNyZXRzOiBudWxsCmxpbmtlcmRWZXJzaW9uOiBMaW5rZXJkVmVyc2lvbgpwb2xpY3lDb250cm9sbGVyOgogIGRlZmF1bHRBbGxvd1BvbGljeTogZGVmYXVsdC1hbGxvdy1wb2xpY3kKICBpbWFnZToKICAgIG5hbWU6IFBvbGljeUNvbnRyb2xsZXJJbWFnZU5hbWUKICAgIHB1bGxQb2xpY3k6IEltYWdlUHVsbFBvbGljeQogICAgdmVyc2lvbjogUG9saWN5Q29udHJvbGxlclZlcnNpb24KICBsb2dMZXZlbDogbG9nLWxldmVsCiAgcmVzb3VyY2VzOgogICAgY3B1OgogICAgICBsaW1pdDogY3B1LWxpbWl0CiAgICAgIHJlcXVlc3Q6IGNwdS1yZXF1ZXN0CiAgICBtZW1vcnk6CiAgICAgIGxpbWl0OiBtZW1vcnktbGltaXQKICAgICAgcmVxdWVzdDogbWVtb3J5LXJlcXVlc3QKcG9saWN5VmFsaWRhdG9yOgogIGNhQnVuZGxlOiBwb2xpY3kgdmFsaWRhdG9yIENBIGJ1bmRsZQogIGV4dGVybmFsU2VjcmV0OiB0cnVlCnByaW9yaXR5Q2xhc3NOYW1lOiBQcmlvcml0eUNsYXNzTmFtZQpwcm9maWxlVmFsaWRhdG9yOgogIGNhQnVuZGxlOiBwcm9maWxlIHZhbGlkYXRvciBDQSBidW5kbGUKICBleHRlcm5hbFNlY3JldDogdHJ1ZQpwcm94eToKICBpbWFnZToKICAgIG5hbWU6IFByb3h5SW1hZ2VOYW1lCiAgICBwdWxsUG9saWN5OiBJbWFnZVB1bGxQb2xpY3kKICAgIHZlcnNpb246IFByb3h5VmVyc2lvbgogIGluYm91bmRDb25uZWN0VGltZW91dDogIiIKICBvcGFxdWVQb3J0czogMjUsNDQzLDU4NywzMzA2LDU0MzIsMTEyMTEKICBvdXRib3VuZENvbm5lY3RUaW1lb3V0OiAiIgogIHJlc291cmNlczoKICAgIGNwdToKICAgICAgbGltaXQ6IGNwdS1saW1pdAogICAgICByZXF1ZXN0OiBjcHUtcmVxdWVzdAogICAgbWVtb3J5OgogICAgICBsaW1pdDogbWVtb3J5LWxpbWl0CiAgICAgIHJlcXVlc3Q6IG1lbW9yeS1yZXF1ZXN0CnByb3h5Q29udGFpbmVyTmFtZTogUHJveHlDb250YWluZXJOYW1lCnByb3h5SW5pdDoKICBpZ25vcmVJbmJvdW5kUG9ydHM6ICIiCiAgaWdub3JlT3V0Ym91bmRQb3J0czogIjQ0MyIKICBpbWFnZToKICAgIG5hbWU6IFByb3h5SW5pdEltYWdlTmFtZQogICAgcHVsbFBvbGljeTogSW1hZ2VQdWxsUG9saWN5CiAgICB2ZXJzaW9uOiBQcm94eUluaXRWZXJzaW9uCiAgcmVzb3VyY2VzOgogICAgY3B1OgogICAgICByZXF1ZXN0OiAxMG0KICAgIG1lbW9yeToKICAgICAgbGltaXQ6IDUwTWkKICAgICAgcmVxdWVzdDogMTBNaQpwcm94eUluamVjdG9yOgogIGNhQnVuZGxlOiBwcm94eSBpbmplY3RvciBDQSBidW5kbGUKICBleHRlcm5hbFNlY3JldDogdHJ1ZQp3ZWJob29rRmFpbHVyZVBvbGljeTogV2ViaG9va0ZhaWx1cmVQb2xpY3kK
 kind: Secret
 metadata:
   creationTimestamp: null

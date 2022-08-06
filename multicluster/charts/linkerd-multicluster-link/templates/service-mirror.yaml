@@ -97,6 +97,7 @@ spec:
     metadata:
       annotations:
         linkerd.io/inject: enabled
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
       labels:
         component: linkerd-service-mirror
         mirror.linkerd.io/cluster-name: {{.Values.targetClusterName}}
@@ -119,4 +120,13 @@ spec:
         ports:
         - containerPort: 9999
           name: admin-http
+        {{- with .Values.resources }}
+        resources: {{ toYaml . | nindent 10 }}
+        {{- end }}
       serviceAccountName: linkerd-service-mirror-{{.Values.targetClusterName}}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{ toYaml . | nindent 6 }}
+      {{- end }}

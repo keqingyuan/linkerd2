@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/linkerd/linkerd2/cli/flag"
 	charts "github.com/linkerd/linkerd2/pkg/charts/linkerd2"
 	pkgcmd "github.com/linkerd/linkerd2/pkg/cmd"
 	"github.com/linkerd/linkerd2/pkg/healthcheck"
@@ -23,6 +23,7 @@ import (
 type checkOptions struct {
 	versionOverride    string
 	preInstallOnly     bool
+	crdsOnly           bool
 	dataPlaneOnly      bool
 	wait               time.Duration
 	namespace          string
@@ -35,6 +36,7 @@ func newCheckOptions() *checkOptions {
 	return &checkOptions{
 		versionOverride:    "",
 		preInstallOnly:     false,
+		crdsOnly:           false,
 		dataPlaneOnly:      false,
 		wait:               300 * time.Second,
 		namespace:          "",
@@ -51,6 +53,7 @@ func (options *checkOptions) nonConfigFlagSet() *pflag.FlagSet {
 	flags.BoolVar(&options.cniEnabled, "linkerd-cni-enabled", options.cniEnabled, "When running pre-installation checks (--pre), assume the linkerd-cni plugin is already installed, and a NET_ADMIN check is not needed")
 	flags.StringVarP(&options.namespace, "namespace", "n", options.namespace, "Namespace to use for --proxy checks (default: all namespaces)")
 	flags.BoolVar(&options.preInstallOnly, "pre", options.preInstallOnly, "Only run pre-installation checks, to determine if the control plane can be installed")
+	flags.BoolVar(&options.crdsOnly, "crds", options.crdsOnly, "Only run checks which determine if the Linkerd CRDs have been installed")
 	flags.BoolVar(&options.dataPlaneOnly, "proxy", options.dataPlaneOnly, "Only run data-plane checks, to determine if the data plane is healthy")
 
 	return flags
@@ -72,6 +75,9 @@ func (options *checkOptions) validate() error {
 	if options.preInstallOnly && options.dataPlaneOnly {
 		return errors.New("--pre and --proxy flags are mutually exclusive")
 	}
+	if options.preInstallOnly && options.crdsOnly {
+		return errors.New("--pre and --crds flags are mutually exclusive")
+	}
 	if !options.preInstallOnly && options.cniEnabled {
 		return errors.New("--linkerd-cni-enabled can only be used with --pre")
 	}
@@ -81,36 +87,13 @@ func (options *checkOptions) validate() error {
 	return nil
 }
 
-// newCmdCheckConfig is a subcommand for `linkerd check config`
-func newCmdCheckConfig(options *checkOptions) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "config [flags]",
-		Args:  cobra.NoArgs,
-		Short: "Check the Linkerd cluster-wide resources for potential problems",
-		Long: `Check the Linkerd cluster-wide resources for potential problems.
-
-The check command will perform a series of checks to validate that the Linkerd
-cluster-wide resources are configured correctly. It is intended to validate that
-"linkerd install config" succeeded. If the command encounters a failure it will
-print additional information about the failure and exit with a non-zero exit
-code.`,
-		Example: `  # Check that the Linkerd cluster-wide resource are installed correctly
-  linkerd check config`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return configureAndRunChecks(cmd, stdout, stderr, configStage, options)
-		},
-	}
-
-	return cmd
-}
-
 func newCmdCheck() *cobra.Command {
 	options := newCheckOptions()
 	checkFlags := options.checkFlagSet()
 	nonConfigFlags := options.nonConfigFlagSet()
 
 	cmd := &cobra.Command{
-		Use:   fmt.Sprintf("check [%s] [flags]", configStage),
+		Use:   "check [flags]",
 		Args:  cobra.NoArgs,
 		Short: "Check the Linkerd installation for potential problems",
 		Long: `Check the Linkerd installation for potential problems.
@@ -125,20 +108,15 @@ non-zero exit code.`,
   # Check that the Linkerd control plane can be installed in the "test" namespace
   linkerd check --pre --linkerd-namespace test
 
-  # Check that "linkerd install config" succeeded
-  linkerd check config
-
   # Check that the Linkerd data plane proxies in the "app" namespace are up and running
   linkerd check --proxy --namespace app`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return configureAndRunChecks(cmd, stdout, stderr, "", options)
+			return configureAndRunChecks(cmd, stdout, stderr, options)
 		},
 	}
 
 	cmd.PersistentFlags().AddFlagSet(checkFlags)
 	cmd.Flags().AddFlagSet(nonConfigFlags)
-
-	cmd.AddCommand(newCmdCheckConfig(options))
 
 	pkgcmd.ConfigureNamespaceFlagCompletion(cmd, []string{"namespace"},
 		kubeconfigPath, impersonate, impersonateGroup, kubeContext)
@@ -146,7 +124,7 @@ non-zero exit code.`,
 	return cmd
 }
 
-func configureAndRunChecks(cmd *cobra.Command, wout io.Writer, werr io.Writer, stage string, options *checkOptions) error {
+func configureAndRunChecks(cmd *cobra.Command, wout io.Writer, werr io.Writer, options *checkOptions) error {
 	err := options.validate()
 	if err != nil {
 		return fmt.Errorf("Validation error when executing check command: %w", err)
@@ -162,6 +140,11 @@ func configureAndRunChecks(cmd *cobra.Command, wout io.Writer, werr io.Writer, s
 		healthcheck.LinkerdVersionChecks,
 	}
 
+	crdManifest := bytes.Buffer{}
+	err = renderCRDs(&crdManifest, valuespkg.Options{})
+	if err != nil {
+		return err
+	}
 	var installManifest string
 	var values *charts.Values
 	if options.preInstallOnly {
@@ -174,25 +157,25 @@ func configureAndRunChecks(cmd *cobra.Command, wout io.Writer, werr io.Writer, s
 			fmt.Fprintf(os.Stderr, "Error rendering install manifest: %s\n", err)
 			os.Exit(1)
 		}
+	} else if options.crdsOnly {
+		checks = append(checks, healthcheck.LinkerdCRDChecks)
 	} else {
 		checks = append(checks, healthcheck.LinkerdConfigChecks)
 
-		if stage != configStage {
-			checks = append(checks, healthcheck.LinkerdControlPlaneExistenceChecks)
-			checks = append(checks, healthcheck.LinkerdIdentity)
-			checks = append(checks, healthcheck.LinkerdWebhooksAndAPISvcTLS)
-			checks = append(checks, healthcheck.LinkerdControlPlaneProxyChecks)
+		checks = append(checks, healthcheck.LinkerdControlPlaneExistenceChecks)
+		checks = append(checks, healthcheck.LinkerdIdentity)
+		checks = append(checks, healthcheck.LinkerdWebhooksAndAPISvcTLS)
+		checks = append(checks, healthcheck.LinkerdControlPlaneProxyChecks)
 
-			if options.dataPlaneOnly {
-				checks = append(checks, healthcheck.LinkerdDataPlaneChecks)
-				checks = append(checks, healthcheck.LinkerdIdentityDataPlane)
-				checks = append(checks, healthcheck.LinkerdOpaquePortsDefinitionChecks)
-			} else {
-				checks = append(checks, healthcheck.LinkerdControlPlaneVersionChecks)
-			}
-			checks = append(checks, healthcheck.LinkerdCNIPluginChecks)
-			checks = append(checks, healthcheck.LinkerdHAChecks)
+		if options.dataPlaneOnly {
+			checks = append(checks, healthcheck.LinkerdDataPlaneChecks)
+			checks = append(checks, healthcheck.LinkerdIdentityDataPlane)
+			checks = append(checks, healthcheck.LinkerdOpaquePortsDefinitionChecks)
+		} else {
+			checks = append(checks, healthcheck.LinkerdControlPlaneVersionChecks)
 		}
+		checks = append(checks, healthcheck.LinkerdCNIPluginChecks)
+		checks = append(checks, healthcheck.LinkerdHAChecks)
 	}
 
 	hc := healthcheck.NewHealthChecker(checks, &healthcheck.Options{
@@ -209,6 +192,7 @@ func configureAndRunChecks(cmd *cobra.Command, wout io.Writer, werr io.Writer, s
 		RetryDeadline:         time.Now().Add(options.wait),
 		CNIEnabled:            options.cniEnabled,
 		InstallManifest:       installManifest,
+		CRDManifest:           crdManifest.String(),
 		ChartValues:           values,
 	})
 
@@ -217,17 +201,20 @@ func configureAndRunChecks(cmd *cobra.Command, wout io.Writer, werr io.Writer, s
 	}
 	success, warning := healthcheck.RunChecks(wout, werr, hc, options.output)
 
-	extensionSuccess, extensionWarning, err := runExtensionChecks(cmd, wout, werr, options)
-	if err != nil {
-		fmt.Fprintf(werr, "Failed to run extensions checks: %s\n", err)
-		os.Exit(1)
+	if !options.preInstallOnly && !options.crdsOnly {
+		extensionSuccess, extensionWarning, err := runExtensionChecks(cmd, wout, werr, options)
+		if err != nil {
+			fmt.Fprintf(werr, "Failed to run extensions checks: %s\n", err)
+			os.Exit(1)
+		}
+
+		success = success && extensionSuccess
+		warning = warning || extensionWarning
 	}
 
-	totalSuccess := success && extensionSuccess
-	totalWarning := warning || extensionWarning
-	healthcheck.PrintChecksResult(wout, options.output, totalSuccess, totalWarning)
+	healthcheck.PrintChecksResult(wout, options.output, success, warning)
 
-	if !totalSuccess {
+	if !success {
 		os.Exit(1)
 	}
 
@@ -280,15 +267,25 @@ func getExtensionCheckFlags(lf *pflag.FlagSet) []string {
 }
 
 func renderInstallManifest(ctx context.Context) (*charts.Values, string, error) {
+	// Create the default values.
+	k8sAPI, err := k8s.NewAPI(kubeconfigPath, kubeContext, impersonate, impersonateGroup, 30*time.Second)
+	if err != nil {
+		return nil, "", err
+	}
 	values, err := charts.NewValues()
 	if err != nil {
 		return nil, "", err
 	}
-
-	var b strings.Builder
-	err = install(ctx, &b, values, []flag.Flag{}, "", valuespkg.Options{})
+	err = initializeIssuerCredentials(ctx, k8sAPI, values)
 	if err != nil {
-		return values, "", err
+		return nil, "", err
+	}
+
+	// Use empty valuesOverrides because there are no option values to merge.
+	var b strings.Builder
+	err = renderControlPlane(&b, values, map[string]interface{}{})
+	if err != nil {
+		return nil, "", err
 	}
 	return values, b.String(), nil
 }

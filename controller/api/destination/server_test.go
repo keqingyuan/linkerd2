@@ -27,404 +27,10 @@ const podIPOpaque = "172.17.0.14"
 const podIPSkipped = "172.17.0.15"
 const podIPPolicy = "172.17.0.16"
 const podIPStatefulSet = "172.17.13.15"
+const externalIP = "192.168.1.20"
 const port uint32 = 8989
 const opaquePort uint32 = 4242
 const skippedPort uint32 = 24224
-
-type mockDestinationGetServer struct {
-	util.MockServerStream
-	updatesReceived []*pb.Update
-}
-
-func (m *mockDestinationGetServer) Send(update *pb.Update) error {
-	m.updatesReceived = append(m.updatesReceived, update)
-	return nil
-}
-
-type mockDestinationGetProfileServer struct {
-	util.MockServerStream
-	profilesReceived []*pb.DestinationProfile
-}
-
-func (m *mockDestinationGetProfileServer) Send(profile *pb.DestinationProfile) error {
-	m.profilesReceived = append(m.profilesReceived, profile)
-	return nil
-}
-
-func makeServer(t *testing.T) *server {
-	meshedPodResources := []string{`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ns`,
-		`
-apiVersion: v1
-kind: Service
-metadata:
-  name: name1
-  namespace: ns
-spec:
-  type: LoadBalancer
-  clusterIP: 172.17.12.0
-  ports:
-  - port: 8989`,
-		`
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: name1
-  namespace: ns
-subsets:
-- addresses:
-  - ip: 172.17.0.12
-    targetRef:
-      kind: Pod
-      name: name1-1
-      namespace: ns
-  ports:
-  - port: 8989`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    linkerd.io/control-plane-ns: linkerd
-  name: name1-1
-  namespace: ns
-status:
-  phase: Running
-  podIP: 172.17.0.12
-spec:
-  containers:
-    - env:
-      - name: LINKERD2_PROXY_INBOUND_LISTEN_ADDR
-        value: 0.0.0.0:4143
-      name: linkerd-proxy`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  name: name2-2
-  namespace: ns
-status:
-  phase: Succeeded
-  podIP: 172.17.0.13`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  name: name2-3
-  namespace: ns
-status:
-  phase: Failed
-  podIP: 172.17.0.13`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  name: name2-4
-  namespace: ns
-  deletionTimestamp: 2021-01-01T00:00:00Z
-status:
-  podIP: 172.17.0.13`,
-		`
-apiVersion: linkerd.io/v1alpha2
-kind: ServiceProfile
-metadata:
-  name: name1.ns.svc.mycluster.local
-  namespace: ns
-spec:
-  routes:
-  - name: route1
-    isRetryable: false
-    condition:
-      pathRegex: "/a/b/c"`,
-	}
-
-	clientSP := []string{
-		`
-apiVersion: linkerd.io/v1alpha2
-kind: ServiceProfile
-metadata:
-  name: name1.ns.svc.mycluster.local
-  namespace: client-ns
-spec:
-  routes:
-  - name: route2
-    isRetryable: true
-    condition:
-      pathRegex: "/x/y/z"`,
-	}
-
-	unmeshedPod := `
-apiVersion: v1
-kind: Pod
-metadata:
-  name: name2
-  namespace: ns
-status:
-  phase: Running
-  podIP: 172.17.0.13`
-
-	meshedOpaquePodResources := []string{
-		`
-apiVersion: v1
-kind: Service
-metadata:
-  name: name3
-  namespace: ns
-spec:
-  type: LoadBalancer
-  clusterIP: 172.17.12.1
-  ports:
-  - port: 4242`,
-		`
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: name3
-  namespace: ns
-subsets:
-- addresses:
-  - ip: 172.17.0.14
-    targetRef:
-      kind: Pod
-      name: name3
-      namespace: ns
-  ports:
-  - port: 4242`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    linkerd.io/control-plane-ns: linkerd
-  annotations:
-    config.linkerd.io/opaque-ports: "4242"
-  name: name3
-  namespace: ns
-status:
-  phase: Running
-  podIP: 172.17.0.14
-spec:
-  containers:
-    - env:
-      - name: LINKERD2_PROXY_INBOUND_LISTEN_ADDR
-        value: 0.0.0.0:4143
-      name: linkerd-proxy`,
-	}
-
-	meshedOpaqueServiceResources := []string{
-		`
-apiVersion: v1
-kind: Service
-metadata:
-  name: name4
-  namespace: ns
-  annotations:
-    config.linkerd.io/opaque-ports: "4242"`,
-	}
-
-	meshedSkippedPodResource := []string{
-		`
-apiVersion: v1
-kind: Service
-metadata:
-  name: name5
-  namespace: ns
-spec:
-  type: LoadBalancer
-  clusterIP: 172.17.13.1
-  ports:
-  - port: 24224`,
-		`
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: name5
-  namespace: ns
-subsets:
-- addresses:
-  - ip: 172.17.0.15
-    targetRef:
-      kind: Pod
-      name: name5
-      namespace: ns
-  ports:
-  - port: 24224`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    linkerd.io/control-plane-ns: linkerd
-  annotations:
-    config.linkerd.io/skip-inbound-ports: "24224"
-  name: name5
-  namespace: ns
-status:
-  phase: Running
-  podIP: 172.17.0.15
-spec:
-  containers:
-    - env:
-      - name: LINKERD2_PROXY_INBOUND_LISTEN_ADDR
-        value: 0.0.0.0:4143
-      name: linkerd-proxy`,
-	}
-
-	meshedStatefulSetPodResource := []string{
-		`
-apiVersion: v1
-kind: Service
-metadata:
-  name: statefulset-svc
-  namespace: ns
-spec:
-  type: LoadBalancer
-  clusterIP: 172.17.13.5
-  ports:
-  - port: 8989`,
-		`
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name:	statefulset-svc
-  namespace: ns
-subsets:
-- addresses:
-  - ip: 172.17.13.15
-    hostname: pod-0
-    targetRef:
-      kind: Pod
-      name: pod-0
-      namespace: ns
-  ports:
-  - port: 8989`,
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    linkerd.io/control-plane-ns: linkerd
-  name: pod-0
-  namespace: ns
-status:
-  phase: Running
-  podIP: 172.17.13.15`,
-	}
-
-	policyResources := []string{
-		`
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    linkerd.io/control-plane-ns: linkerd
-    app: policy-test
-  name: pod-policyResources
-  namespace: ns
-status:
-  phase: Running
-  podIP: 172.17.0.16
-spec:
-  containers:
-    - name: linkerd-proxy
-      env:
-      - name: LINKERD2_PROXY_INBOUND_LISTEN_ADDR
-        value: 0.0.0.0:4143
-    - name: app
-      image: nginx
-      ports:
-      - containerPort: 80
-        name: http
-        protocol: TCP`,
-		`
-apiVersion: policy.linkerd.io/v1beta1
-kind: Server
-metadata:
-  name: srv
-  namespace: ns
-spec:
-  podSelector:
-    matchLabels:
-      app: policy-test
-  port: 80
-  proxyProtocol: opaque`,
-	}
-
-	res := append(meshedPodResources, clientSP...)
-	res = append(res, unmeshedPod)
-	res = append(res, meshedOpaquePodResources...)
-	res = append(res, meshedOpaqueServiceResources...)
-	res = append(res, meshedSkippedPodResource...)
-	res = append(res, meshedStatefulSetPodResource...)
-	res = append(res, policyResources...)
-	k8sAPI, err := k8s.NewFakeAPI(res...)
-	if err != nil {
-		t.Fatalf("NewFakeAPI returned an error: %s", err)
-	}
-	log := logging.WithField("test", t.Name())
-	defaultOpaquePorts := map[uint32]struct{}{
-		25:    {},
-		443:   {},
-		587:   {},
-		3306:  {},
-		5432:  {},
-		11211: {},
-	}
-
-	err = watcher.InitializeIndexers(k8sAPI)
-	if err != nil {
-		t.Fatalf("initializeIndexers returned an error: %s", err)
-	}
-
-	endpoints := watcher.NewEndpointsWatcher(k8sAPI, log, false)
-	opaquePorts := watcher.NewOpaquePortsWatcher(k8sAPI, log, defaultOpaquePorts)
-	profiles := watcher.NewProfileWatcher(k8sAPI, log)
-	servers := watcher.NewServerWatcher(k8sAPI, log)
-
-	// Sync after creating watchers so that the the indexers added get updated
-	// properly
-	k8sAPI.Sync(nil)
-
-	return &server{
-		pb.UnimplementedDestinationServer{},
-		endpoints,
-		opaquePorts,
-		profiles,
-		servers,
-		k8sAPI.Node(),
-		true,
-		"linkerd",
-		"trust.domain",
-		"mycluster.local",
-		defaultOpaquePorts,
-		k8sAPI,
-		log,
-		make(<-chan struct{}),
-	}
-}
-
-type bufferingGetStream struct {
-	updates []*pb.Update
-	util.MockServerStream
-}
-
-func (bgs *bufferingGetStream) Send(update *pb.Update) error {
-	bgs.updates = append(bgs.updates, update)
-	return nil
-}
-
-type bufferingGetProfileStream struct {
-	updates []*pb.DestinationProfile
-	util.MockServerStream
-}
-
-func (bgps *bufferingGetProfileStream) Send(profile *pb.DestinationProfile) error {
-	bgps.updates = append(bgps.updates, profile)
-	return nil
-}
 
 func TestGet(t *testing.T) {
 	t.Run("Returns error if not valid service name", func(t *testing.T) {
@@ -1067,6 +673,68 @@ func TestGetProfiles(t *testing.T) {
 		}
 		if update.Endpoint.ProtocolHint.GetOpaqueTransport().GetInboundPort() != 4143 {
 			t.Fatalf("Expected pod to support opaque traffic on port 4143")
+		}
+	})
+
+	t.Run("Return profile with opaque protocol when using an opaque port with an external IP", func(t *testing.T) {
+		server := makeServer(t)
+		stream := &bufferingGetProfileStream{
+			updates:          []*pb.DestinationProfile{},
+			MockServerStream: util.NewMockServerStream(),
+		}
+		stream.Cancel()
+
+		_, err := toAddress(externalIP, 3306)
+		if err != nil {
+			t.Fatalf("Got error: %s", err)
+		}
+		err = server.GetProfile(&pb.GetDestination{
+			Scheme: "k8s",
+			Path:   fmt.Sprintf("%s:%d", externalIP, 3306),
+		}, stream)
+		if err != nil {
+			t.Fatalf("Got error: %s", err)
+		}
+
+		// Test that the first update has a destination profile with an
+		// opaque protocol and opaque transport.
+		if len(stream.updates) == 0 {
+			t.Fatalf("Expected at least 1 update but got 0")
+		}
+		update := stream.updates[0]
+		if !update.OpaqueProtocol {
+			t.Fatalf("Expected port %d to be an opaque protocol, but it was not", 3306)
+		}
+	})
+
+	t.Run("Return profile with non-opaque protocol when using an arbitrary port with an external IP", func(t *testing.T) {
+		server := makeServer(t)
+		stream := &bufferingGetProfileStream{
+			updates:          []*pb.DestinationProfile{},
+			MockServerStream: util.NewMockServerStream(),
+		}
+		stream.Cancel()
+
+		_, err := toAddress(externalIP, 80)
+		if err != nil {
+			t.Fatalf("Got error: %s", err)
+		}
+		err = server.GetProfile(&pb.GetDestination{
+			Scheme: "k8s",
+			Path:   fmt.Sprintf("%s:%d", externalIP, 80),
+		}, stream)
+		if err != nil {
+			t.Fatalf("Got error: %s", err)
+		}
+
+		// Test that the first update has a destination profile with an
+		// opaque protocol and opaque transport.
+		if len(stream.updates) == 0 {
+			t.Fatalf("Expected at least 1 update but got 0")
+		}
+		update := stream.updates[0]
+		if update.OpaqueProtocol {
+			t.Fatalf("Expected port %d to be a non-opaque protocol, but it was opaque", 80)
 		}
 	})
 }

@@ -39,6 +39,9 @@ const (
 	LinkAPIGroupVersion = "multicluster.linkerd.io/v1alpha1"
 	LinkKind            = "Link"
 
+	ServerKind    = "Server"
+	HTTPRouteKind = "HTTPRoute"
+
 	// special case k8s job label, to not conflict with Prometheus' job label
 	l5dJob = "k8s_job"
 )

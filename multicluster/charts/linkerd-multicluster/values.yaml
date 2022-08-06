@@ -26,6 +26,9 @@ gateway:
   # -- Set loadBalancerIP on gateway service
   loadBalancerIP: ""
 
+  # -- User id under which the gateway shall be ran
+  UID: 2103
+
 # -- Control plane version
 linkerdVersion: linkerdVersionValue
 # -- The port on which the proxy accepts outbound traffic
@@ -50,3 +53,8 @@ enablePSP: false
 # across hosts and zones for High Availability.
 # Enable this only when you have multiple replicas of components.
 enablePodAntiAffinity: false
+
+# -- NodeAffinity section, See the
+# [K8S documentation](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity)
+# for more information
+# nodeAffinity:

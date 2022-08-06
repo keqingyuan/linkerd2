@@ -166,6 +166,10 @@ webhooks:
     apiGroups: ["policy.linkerd.io"]
     apiVersions: ["v1alpha1", "v1beta1"]
     resources:
+    - authorizationpolicies
+    - httproutes
+    - networkauthentications
+    - meshtlsauthentications
     - serverauthorizations
     - servers
   sideEffects: None
@@ -190,6 +194,10 @@ rules:
   - apiGroups:
       - policy.linkerd.io
     resources:
+      - authorizationpolicies
+      - httproutes
+      - meshtlsauthentications
+      - networkauthentications
       - servers
       - serverauthorizations
     verbs:

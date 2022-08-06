@@ -1,5 +1,332 @@
 # Changes
 
+## edge-22.8.1
+
+This releases introduces default probe authorization. This means that on
+clusters that use a default `deny` policy, probes do not have to be explicitly
+authorized using policy resources. Additionally, the
+`policyController.probeNetworks` Helm value has been added, which allows users
+to configure the networks that probes are expected to be performed from.
+
+Additionally, the `linkerd authz` command has been updated to support the policy
+resources AuthorizationPolicy and HttpRoute.
+
+Finally, some smaller changes include allowing to disable `linkerd-await` on
+control plane components (using the existing `proxy.await` configuration) and
+changing the default iptables mode back to `legacy` to support more cluster
+environments by default.
+
+* Updated the `linkerd authz` command to support AuthorizationPolicy and
+  HttpRoute resources
+* Changed the `proxy.await` Helm value so that users can now disable
+  `linkerd-await` on control plane components
+* Added probe authorization by default allowing clusters that use a default
+  `deny` policy to not explicitly need to authorize probes
+* Added ability to run the Linkerd CNI plugin in non-chained (stand-alone) mode
+* Added the `policyController.probeNetworks` Helm value for configuring the
+  networks that probes are expected to be performed from
+* Changed the default iptables mode to `legacy`
+
+## edge-22.7.3
+
+This release adds a new `nft` iptables mode, used by default in proxy-init.
+When used, firewall configuration will be set-up through the `iptables-nft`
+binary; this should allow hosts that do not support `iptables-legacy` (such as
+RHEL based environments) to make use of the init container. The older
+`iptables-legacy` mode is still supported, but it must be explictly turned on.
+Moreover, this release also replaces the `HTTPRoute` CRD with Linkerd's own
+version, and includes a number of fixes and improvements.
+
+* Added a new `iptables-nft` mode for proxy-init. When running in this mode,
+  the firewall will be configured with `nft` kernel API; this should allow
+  users to run the init container on RHEL-family hosts
+* Fixed an issue where the proxy-injector would break when using `nodeAffinity`
+  values for the control plane
+* Updated healthcheck to ignore `Terminated` state for pods (thanks
+  @AgrimPrasad!)
+* Replaced `HTTRoute` CRD version from `gateway.networking.k8s.io` with a
+  similar version from the `policy.linkerd.io` API group. While the CRD is
+  similar, it does not support the `Gateway` type, does not contain the
+  `backendRefs` fields, and does not support `RequestMirror` and `ExtensionRef`
+  filter types.
+* Updated the default policy controller log level to `info`; the controller
+  will now emit INFO level logs for some of its dependencies
+* Added validation to ensure `HTTPRoute` paths are absolute; relative paths are
+  not supported by the proxy and the policy controller admission server will
+  reject any routes that use paths which do not start with `/`
+
+## edge-22.7.2
+
+This release adds support for per-route authorization policy using the
+AuthorizationPolicy and HttpRoute resources. It also adds a configurable
+shutdown grace period to the proxy which can be used to ensure that proxy
+graceful shutdown completes within a certain time, even if there are outstanding
+open connections.
+
+* Removed kube-system exclusions from watchers to fix service discovery for
+  workloads in the kube-system namespace (thanks @JacobHenner)
+* Added annotations to allow Linkerd extension deployments to be evicted by the
+  autoscaler when necessary
+* Added missing port in the Linkerd viz chart documentation (thanks @haswalt)
+* Added support for per-route policy by supporting AuthorizationPolicy resources
+  which target HttpRoute resources
+* Fixed the `linkerd check` command crashing when unexpected pods are found in
+  a Linkerd namespace
+* Added a `config.linkerd.io/shutdown-grace-period` annotation to configure the
+  proxy's maximum grace period for graceful shutdown
+
+## edge-22.7.1
+
+This release includes a security improvement. When a user manually specified the
+`policyValidator.keyPEM` setting, the value was incorrectly included in the
+`linkerd-config` configmap. This means that this private key was erroneously
+exposed to service accounts with read access to this configmap. Practically,
+this means that the Linkerd `proxy-injector`, `identity`, and `heartbeat` pods
+could read this value. This should **not** have exposed this private key to
+other unauthorized users unless additional role bindings were added outside of
+Linkerd. Nevertheless, we recommend that users who manually set control plane
+certificates update the credentials for the policy validator after upgrading
+Linkerd.
+
+Additionally, the linkerd-multicluster extensions has several fixes related to
+fail fast errors during link watch restarts, improper label matching for
+mirrored services, and properly cleaning up mirrored endpoints in certain
+situations.
+
+Lastly, the proxy can now retry gRPC requests that have responses with a
+TRAILERS frame. A fix to reduce redundant load balancer updates should also
+result in less connection churn.
+
+* Changed unit tests to use newly introduced `prommatch` package for asserting
+  expected metrics (thanks @krzysztofdrys!)
+* Fixed Docker container runtime check to only during `linkerd install` rather
+  than `linkerd check --pre`
+* Changed linkerd-multicluster's remote cluster watcher to assume the gateway is
+  alive when starting—fixing fail fast errors from occurring during restarts
+  (thanks @chenaoxd!)
+* Added `matchLabels` and `matchExpressions` to linkerd-multicluster's Link CRD
+* Fixed linkerd-multicluster's label selector to properly select resources that
+  match the expected label value, rather than just the presence of the label
+* Fixed linkerd-multicluster's cluster watcher to properly clean up endpoints
+  belonging to remote headless services that are no longer mirrored
+* Added the HttpRoute CRD which will be used by future policy features
+* Fixed CNI plugin event processing where file updates could sometimes be
+  skipped leading to the update not being acknowledged
+* Fixed redundant load balancer updates in the proxy that could cause
+  unnecessary connection churn
+* Fixed gRPC request retries for responses that contain a TRAILERS frame
+* Fixed the dashboard's `linkerd check` due to missing RBAC for listing pods in
+  the cluster
+* Fixed API check that ensures access to the Server CRD (thanks @aatarasoff!)
+* Changed `linkerd authz` to match the labels of pre-fetched Pods rather than
+  the multiple API calls it was doing—resulting in significant speed-up (thanks
+  @aatarasoff!)
+* Unset `policyValidtor.keyPEM` in `linkerd-config` ConfigMap
+
+## edge-22.6.2
+
+This edge release bumps the minimum supported Kubernetes version from `v1.20`
+to `v1.21`, introduces some new changes, and includes a few bug fixes. Most
+notably, a bug has been fixed in the proxy's outbound load balancer that could
+cause panics, especially when the balancer would process many service discovery
+updates in a short period of time. This release also fixes a panic in the
+proxy-injector, and introduces a change that will include HTTP probe ports in
+the proxy's inbound ports configuration, to be used for policy discovery.
+
+* Fixed a bug in the proxy's outbound load balancer that could cause panics
+  when many discovery updates were processed in short time periods
+* Added `runtimeClassName` options to Linkerd's Helm chart (thanks @jtcarnes!)
+* Introduced a change in the proxy-injector that will configure the inbound
+  ports proxy configuration with the pod's probe ports (HTTPGet)
+* Added godoc links in the project README file (thanks @spacewander!)
+* Increased minimum supported Kubernetes version to `v1.21` from `v1.20`
+* Fixed an issue where the proxy-injector would not emit events for resources
+  that receive annotation patches but are skipped for injection
+* Refactored `PublicIPToString` to handle both IPv4 and IPv6 addresses in a
+  similar behavior (thanks @zhlsunshine!)
+* Replaced the usage of branch with tags, and pinned `cosign-installer` action
+  to `v1` (thanks @saschagrunert!)
+* Fixed an issue where the proxy-injector would panic if resources have an
+  unsupported owner kind
+
+## edge-22.6.1
+
+This edge release fixes an issue where Linkerd injected pods could not be
+evicted by Cluster Autoscaler. It also adds the `--crds` flag to `linkerd check`
+which validates that the Linkerd CRDs have been installed with the proper
+versions.
+
+The previously noisy "cluster networks can be verified" check has been replaced
+with one that now verifies each running Pod IP is contained within the current
+`clusterNetworks` configuration value.
+
+Additionally, linkerd-viz is no longer required for linkerd-multicluster's
+`gateways` command — allowing the `Gateways` API to marked as deprecated for
+2.12.
+
+Finally, several security issues have been patched in the Docker images now that
+the builds are pinned only to minor — rather than patch — versions.
+
+* Replaced manual IP address parsing with functions available in the Go standard
+  library (thanks @zhlsunshine!)
+* Removed linkerd-multicluster's `gateway` command dependency on the linkerd-viz
+  extension
+* Fixed issue where Linkerd injected pods were prevented from being evicted by
+  Cluster Autoscaler
+* Added the `dst_target_cluster` metric to linkerd-multicluster's service-mirror
+  controller probe traffic
+* Added the `--crds` flag to `linkerd check` which validates that the Linkerd
+  CRDs have been installed
+* Removed the Docker image's hardcoded patch versions so that builds pick up
+  patch releases without manual intervention
+* Replaced the "cluster networks can be verified check" check with a "cluster
+  networks contains all pods" check which ensures that all currently running Pod
+  IPs are contained by the current `clusterNetworks` configuration
+* Added IPv6 compatible IP address generation in certain control plane
+  components that were only generating IPv4 (thanks @zhlsunshine!)
+* Deprecated linkerd-viz's `Gateways` API which is no longer used by
+  linkerd-multicluster
+* Added the `promm` package for making programatic Prometheus assertions in
+  tests (thanks @krzysztofdrys!)
+* Added the `runAsUser` configuration to extensions to fix a PodSecurityPolicy
+  violation when CNI is enabled
+
+## edge-22.5.3
+
+This edge release fixes a few proxy issues, improves the upgrade process, and
+introduces proto retries to Service Profiles. Also included are updates to the
+bash scripts to ensure that they follow best practices.
+
+* Polished the shell scripts (thanks @joakimr-axis)
+* Introduced retries to Service Profiles based on the idempotency option of the
+  method by adding an isRetryable function to the proto definition
+ (thanks @mahlunar)
+* Fixed proxy responses to CONNECT requests by removing the content-length
+  and/or transfer-encoding headers from the response
+* Fixed DNS lookups in the proxy to consistently use A records when SRV records
+  cannot be resolved
+* Added dynamic policy discovery to the proxy by evaluating traffic on ports
+  not included in the LINKERD2_PROXY_INBOUND_PORTS environment variable
+* Added logic to require that the linkerd CRDs are installed when running
+  the `linkerd upgrade` command
+
+## edge-22.5.2
+
+This edge release ships a few changes to the chart values, a fix for
+multicluster headless services, and notable proxy features. HA functionality,
+such as PDBs, deployment strategies, and pod anti-affinity, have been split
+from the HA values and are now configurable for the control plane. On the proxy
+side, non-HTTP traffic will now be forwarded on the outbound side within the
+cluster when the proxy runs in ingress mode.
+
+* Updated `ingress-mode` proxies to forward non-HTTP traffic within the cluster
+  (protocol detection will always be attempted for outbound connections)
+* Added a new proxy metric `process_uptime_seconds_total` to keep track of the
+  number of seconds since the proxy started
+* Fixed an issue with multicluster headless service mirroring, where exported
+  endpoints would be mirrored with a delay, or when changes to the export label
+  would be ignored
+* Split HA functionality, such as PodDisruptionBudgets, into multiple
+  configurable values (thanks @evan-hines-firebolt for the initial work)
+
+## edge-22.5.1
+
+This edge release adds more flexibility to the MeshTLSAuthentication and
+AuthorizationPolicy policy resources by allowing them to target entire
+namespaces. It also fixes a race condition when multiple CNI plugins are
+installed together as well as a number of other bug fixes.
+
+* Added support for MeshTLSAuthentication resources to target an entire
+  namespace, authenticating all ServiceAccounts in that namespace
+* Fixed a panic in `linkerd install` when the `--ignore-cluster` flag is passed
+* Fixed issue where pods would fail to start when `enablePSP` and
+  `proxyInit.runAsRoot` are set
+* Added support for AuthorizationPolicy resources to target namespaces, applying
+  to all Servers in that namespace
+* Fixed a race condition where the Linkerd CNI configuration could be
+  overwritten when multiple CNI plugins are installed
+* Added test for opaque ports using Service and Pod IPs (thanks @krzysztofdrys!)
+* Fixed an error in the linkerd-viz Helm chart in HA mode
+
+## edge-22.4.1
+
+In order to support having custom resources in the default Linkerd installation,
+the CLI install flow is now always a 2-step process where `linkerd install
+--crds` must be run first to install CRDs only and then `linkerd install` is run
+to install everything else. This more closely aligns the CLI install flow with
+the Helm install flow where the CRDs are a separate chart. This also applies to
+`linkerd upgrade`. Also, the `config` and `control-plane` sub-commands have been
+removed from both `linkerd install` and `linkerd upgrade`.
+
+On the proxy side, this release fixes an issue where proxies would not honor the
+cluster's opaqueness settings for non-pod/service addresses. This could cause
+protocol detection to be peformed, for instance, when using off-cluster
+databases.
+
+This release also disables the use of regexes in Linkerd log filters (i.e., as
+set by `LINKERD2_PROXY_LOG`). Malformed log directives could, in theory, cause a
+proxy to stop responding.
+
+The `helm.sh/chart` label in some of the CRDs had its formatting fixed, which
+avoids issues when installing/upgrading through external tools that make use of
+it, such as recent versions of Flux.
+
+* Added `--crds` flag to install/upgrade and remove config/control-plane stages
+* Allowed the `AuthorizationPolicy` CRD to have an empty
+  `requiredAuthenticationRefs` entry that allows all traffic
+* Introduced `nodeAffinity` config in all the charts for enhanced control on the
+  pods scheduling (thanks @michalrom089!)
+* Introduced `resources`, `nodeSelector` and `tolerations` configs in the
+  `linkerd-multicluster-link` chart for enhanced control on the service mirror
+  deployment (thanks @utay!)
+* Fixed formatting of the `helm.sh/chart` label in CRDs
+* Updated container base images from buster to bullseye
+* Added support for spaces in the `config.linkerd.io/opaque-ports` annotation
+
+## edge-22.3.5
+
+This edge release introduces new policy CRDs that allow for more generalized
+authorization policies.
+
+The `AuthorizationPolicy` CRD authorizes clients that satisfy all the required
+authentications to communicate with the Linkerd `Server` that it targets.
+Required authentications are specified through the new `MeshTLSAuthentication`
+and `NetworkAuthentication` CRDs.
+
+A `MeshTLSAuthentication` defines a list of authenticated client IDs—specified
+directly by proxy identity strings or referencing resources such as
+`ServiceAccount`s.
+
+A `NetworkAuthentication` defines a list of client networks that will be
+authenticated.
+
+Additionally, to support the new CRDs, policy-related labels have been changed
+to better categorize policy metrics. A `srv_kind` label has been introduced
+which splits the current `srv_name` value—formatted as `kind:name`—into separate
+labels. The `saz_name` label has been removed and is replaced by the new
+`authz_kind` and `authz_name` labels.
+
+* Introduced the `srv_kind` label which allowed splitting the value of the
+  current `srv_name` label
+* Removed the `saz_name` label and replaced it with the new `authz_kind` and
+  `authz_name` labels
+* Fixed an issue in the destination controller where an update would not be sent
+  after an endpoint was discovered for a currently empty service
+* Introduced the following custom resource types to support generalized
+  authorization policies: `AuthorizationPolicy`, `MeshTLSAuthentication`,
+  `NetworkAuthentication`
+* Deprecated the `--proxy-version` flag (thanks @importhuman!)
+* Updated linkerd-viz to use new policy CRDs
+
+## edge-22.3.4
+
+* Disabled pprof endpoints on Linkerd control plane components by default
+* Fixed an issue where mirror service endpoints of headless services were always
+  ready regardless of gateway liveness
+* Added server side validation for ServerAuthorization resources
+* Fixed an "origin not allowed" issue when using the latest Grafana with the
+  Linkerd Viz extension
+
 ## edge-22.3.3
 
 This edge release ensures that in multicluster installations, mirror service
@@ -2436,7 +2763,7 @@ transparent to the application, and work with any network topology.
   attempts to prevent the most common traffic-loop scenarios to protect against
   this.
 
-***NOTE***: Linkerd's `multicluster` extension does not yet work on Amazon
+_**NOTE**_: Linkerd's `multicluster` extension does not yet work on Amazon
 EKS. We expect to follow this release with a stable-2.8.1 to address this
 issue. Follow [#4582](https://github.com/linkerd/linkerd2/pull/4582) for updates.
 
@@ -5372,8 +5699,8 @@ to reduce possible naming collisions. To upgrade an existing installation:
 For more information, see the [Upgrade Guide](https://linkerd.io/2/upgrade/).
 
 * CLI
-  * **Improved** `linkerd routes` command displays per-route stats for *any
-    resource*!
+  * **Improved** `linkerd routes` command displays per-route stats for _any
+    resource_!
   * **New** Service profiles are now supported for external authorities!
   * **New** `linkerd routes --open-api` flag generates a service profile based
     on an OpenAPI specification (swagger) file

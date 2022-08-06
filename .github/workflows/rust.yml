@@ -1,0 +1,106 @@
+name: Rust
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/rust.yml
+      - Cargo.lock
+      - '**/Cargo.toml'
+      - justfile
+      - deny.toml
+      - '**/*.rs'
+      - policy-*/*.dockerfile
+      - rust-toolchain
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  PROTOC_NO_VENDOR: 1
+  RUST_BACKTRACE: short
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  audit:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    # Prevent sudden announcement of a new advisory from failing Ci.
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+    steps:
+    - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+    - uses: EmbarkStudios/cargo-deny-action@7257a18a9c2fe3f92b85d41ae473520dff953c97
+      with:
+        command: check ${{ matrix.checks }}
+
+  fmt:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    container: ghcr.io/linkerd/dev:v24-rust
+    steps:
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - run: just rs-check-fmt
+
+  clippy:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    container: ghcr.io/linkerd/dev:v24-rust
+    steps:
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - run: just rs-fetch
+      - run: just rs-clippy
+      - run: just rs-doc --no-deps
+
+  check:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    container: ghcr.io/linkerd/dev:v24-rust
+    steps:
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - run: just rs-fetch
+      - run: just rs-check-dirs
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: ghcr.io/linkerd/dev:v24-rust
+    steps:
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - run: just rs-fetch
+      - run: just rs-test-build
+      - run: just rs-test
+
+  rust-toolchain:
+    name: rust toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - run: |
+          ex=0
+
+          # Check this workflow against the version in rust-toolchain.
+          versions=$(sed -nE 's|.*docker://(.*/)?rust:([^ #]+).*|\2|p' .github/workflows/*)
+          for mismatch in $(echo "$versions" | grep -vF "$(cat rust-toolchain)" || true) ; do
+            echo "::error file=.github/workflows/rust.yml::Workflow uses incorrect rust version(s): $mismatch"
+            ex=$((ex + 1))
+          done
+
+          # Check the policy-controller dockerfiles workflow against the version
+          # in rust-toolchain.
+          for f in policy-controller/*.dockerfile ; do
+            versions=$(sed -nE 's|ARG RUST_IMAGE=(.*/)?rust:([^ #]+).*|\2|p' "$f")
+            for mismatch in $(echo "$versions" | grep -vF "$(cat rust-toolchain)" || true) ; do
+              echo "::error file=\"$f\"::$f uses incorrect rust version(s): $mismatch"
+              ex=$((ex + 1))
+            done
+          done
+
+          exit $ex
